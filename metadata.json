@@ -1,0 +1,6 @@
+{
+  "name": "DRK Goods - Attendance & Payroll",
+  "description": "Smart GPS-verified staff attendance tracker for DRK Goods with OTP authentication, geofence verification, and automated payroll.",
+  "requestFramePermissions": ["geolocation"],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
