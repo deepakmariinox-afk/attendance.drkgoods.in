@@ -35,6 +35,7 @@ import { DownloadCenterModal } from './DownloadCenterModal';
 import { AppDownloadModal } from './AppDownloadModal';
 import { exportEmployeePaySlipPdf, exportIndividualMonthlyAttendancePdf } from '../utils/pdfExport';
 import { exportIndividualAttendanceExcel } from '../utils/excelExport';
+import { BrandLogo } from './BrandLogo';
 
 export const StaffPunchClock: React.FC = () => {
   const {
@@ -407,36 +408,40 @@ export const StaffPunchClock: React.FC = () => {
         <div className="relative z-10 grid grid-cols-1 lg:grid-cols-12 gap-6 items-center">
           {/* Left: User & Time */}
           <div className="lg:col-span-7 space-y-4">
-            <div className="flex flex-wrap items-center gap-2">
-              {(() => {
-                const myShift = shifts.find((s) => s.id === currentUser.assignedShiftId) || shifts[0];
-                return (
-                  <div className="inline-flex items-center gap-2 px-3 py-1 rounded-full bg-slate-800/80 border border-slate-700/60 text-xs text-slate-300">
-                    <span className="w-2 h-2 rounded-full bg-emerald-400 animate-pulse" />
-                    <span>
-                      Shift: {myShift?.name || 'Standard'} ({myShift?.startTime || '09:00'} - {myShift?.endTime || '17:30'})
-                    </span>
+            <div className="flex flex-wrap items-center justify-between gap-3 pb-2 border-b border-slate-800/80">
+              <BrandLogo size="sm" variant="dark" showSubtitle={false} />
+
+              <div className="flex flex-wrap items-center gap-2">
+                {(() => {
+                  const myShift = shifts.find((s) => s.id === currentUser.assignedShiftId) || shifts[0];
+                  return (
+                    <div className="inline-flex items-center gap-2 px-3 py-1 rounded-full bg-slate-800/80 border border-slate-700/60 text-xs text-slate-300">
+                      <span className="w-2 h-2 rounded-full bg-emerald-400 animate-pulse" />
+                      <span>
+                        Shift: {myShift?.name || 'Standard'} ({myShift?.startTime || '09:00'} - {myShift?.endTime || '17:30'})
+                      </span>
+                    </div>
+                  );
+                })()}
+
+                {isAdmin && (
+                  <div className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full bg-purple-600/30 border border-purple-500/40 text-xs text-purple-300 font-semibold">
+                    <ShieldCheck className="w-3.5 h-3.5 text-purple-400" />
+                    <span>Admin</span>
                   </div>
-                );
-              })()}
+                )}
 
-              {isAdmin && (
-                <div className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full bg-purple-600/30 border border-purple-500/40 text-xs text-purple-300 font-semibold">
-                  <ShieldCheck className="w-3.5 h-3.5 text-purple-400" />
-                  <span>Admin Mode Active</span>
-                </div>
-              )}
-
-              {/* High-visibility Log Out / Exit Button */}
-              <button
-                onClick={logout}
-                id="btn-banner-logout"
-                title="Log out of current staff session"
-                className="inline-flex items-center gap-1 px-3 py-1 rounded-full bg-red-500/20 hover:bg-red-500/30 border border-red-500/40 text-xs text-red-300 font-medium transition cursor-pointer"
-              >
-                <LogOut className="w-3 h-3 text-red-400" />
-                <span>Log Out</span>
-              </button>
+                {/* High-visibility Log Out / Exit Button */}
+                <button
+                  onClick={logout}
+                  id="btn-banner-logout"
+                  title="Log out of current staff session"
+                  className="inline-flex items-center gap-1 px-3 py-1 rounded-full bg-red-500/20 hover:bg-red-500/30 border border-red-500/40 text-xs text-red-300 font-medium transition cursor-pointer"
+                >
+                  <LogOut className="w-3 h-3 text-red-400" />
+                  <span>Log Out</span>
+                </button>
+              </div>
             </div>
 
             <div>

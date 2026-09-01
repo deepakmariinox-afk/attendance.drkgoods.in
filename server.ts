@@ -106,13 +106,24 @@ function loadAppState() {
       
       INITIAL_EMPLOYEES.forEach((initEmp) => {
         const initDigits = (initEmp.phone || '').replace(/\D/g, '');
-        const exists = empList.some(
+        const existingIdx = empList.findIndex(
           (e: any) =>
             e.id === initEmp.id ||
             ((e.phone || '').replace(/\D/g, '') === initDigits && initDigits.length > 0)
         );
-        if (!exists) {
+        if (existingIdx === -1) {
           empList.push({ ...initEmp });
+        } else {
+          empList[existingIdx] = {
+            ...initEmp,
+            ...empList[existingIdx],
+            name: initEmp.name || empList[existingIdx].name,
+            phone: initEmp.phone || empList[existingIdx].phone,
+            vendor: initEmp.vendor || empList[existingIdx].vendor || 'Direct',
+            department: empList[existingIdx].department || initEmp.department,
+            designation: empList[existingIdx].designation || initEmp.designation,
+            joinDate: initEmp.joinDate || empList[existingIdx].joinDate,
+          };
         }
       });
 
@@ -195,17 +206,27 @@ app.post('/api/sync-data', (req, res) => {
     let mergedEmployees = current.employees;
     if (Array.isArray(incoming.employees)) {
       const employeeMap = new Map<string, any>();
+      
+      // 1. Seed with initial employees
       INITIAL_EMPLOYEES.forEach((initEmp) => {
         employeeMap.set(initEmp.id, { ...initEmp });
       });
 
+      // 2. Add existing server employees
+      if (Array.isArray(current.employees)) {
+        current.employees.forEach((e: any) => {
+          if (e && e.id) employeeMap.set(e.id, { ...e });
+        });
+      }
+
+      // 3. Merge incoming employees
       incoming.employees.forEach((e: any) => {
         if (!e || !e.id) return;
         const phoneDigits = (e.phone || '').replace(/\D/g, '');
         let targetKey = e.id;
         for (const [key, existing] of employeeMap.entries()) {
           const existingDigits = (existing.phone || '').replace(/\D/g, '');
-          if (key === e.id || (phoneDigits.length >= 10 && existingDigits.endsWith(phoneDigits.slice(-10)))) {
+          if (key === e.id || (phoneDigits.length >= 10 && existingDigits.length >= 10 && existingDigits === phoneDigits)) {
             targetKey = key;
             break;
           }
@@ -217,12 +238,46 @@ app.post('/api/sync-data', (req, res) => {
           ...e,
           id: targetKey,
           role: isDeepak ? 'admin' : 'staff',
-          phone: isDeepak && (e.phone === '9876500001' || !e.phone) ? '9971336707' : (e.phone || existing?.phone || ''),
-          appAccessGranted: true,
-          accessStatus: 'ACTIVE',
+          phone: isDeepak && (e.phone === '9876500001' || !e.phone) ? '9971336707' : (e.phone !== undefined ? e.phone : existing?.phone || ''),
+          appAccessGranted: e.appAccessGranted !== undefined ? e.appAccessGranted : true,
+          accessStatus: e.accessStatus || 'ACTIVE',
         });
       });
       mergedEmployees = Array.from(employeeMap.values());
+    }
+
+    let mergedAttendance = current.attendance || [];
+    if (Array.isArray(incoming.attendance)) {
+      const attMap = new Map<string, any>();
+      (current.attendance || []).forEach((a: any) => {
+        if (a && a.id) attMap.set(a.id, a);
+      });
+      incoming.attendance.forEach((a: any) => {
+        if (!a || !a.id) return;
+        const existing = attMap.get(a.id);
+        if (!existing) {
+          attMap.set(a.id, a);
+        } else {
+          // Merge punches safely
+          const mergedPunches = [...(existing.punches || [])];
+          (a.punches || []).forEach((p: any) => {
+            if (!mergedPunches.some((ep: any) => ep.id === p.id)) {
+              mergedPunches.push(p);
+            }
+          });
+          attMap.set(a.id, {
+            ...existing,
+            ...a,
+            punches: mergedPunches,
+            checkInTime: a.checkInTime || existing.checkInTime,
+            checkOutTime: a.checkOutTime || existing.checkOutTime,
+            totalWorkMinutes: Math.max(a.totalWorkMinutes || 0, existing.totalWorkMinutes || 0),
+            overtimeMinutes: Math.max(a.overtimeMinutes || 0, existing.overtimeMinutes || 0),
+            status: a.status || existing.status,
+          });
+        }
+      });
+      mergedAttendance = Array.from(attMap.values()).sort((a: any, b: any) => (b.date || '').localeCompare(a.date || ''));
     }
 
     const merged = {
@@ -230,7 +285,7 @@ app.post('/api/sync-data', (req, res) => {
       employees: mergedEmployees,
       locations: incoming.locations !== undefined ? incoming.locations : current.locations,
       shifts: incoming.shifts !== undefined ? incoming.shifts : current.shifts,
-      attendance: incoming.attendance !== undefined ? incoming.attendance : current.attendance,
+      attendance: mergedAttendance,
       leaveRequests: incoming.leaveRequests !== undefined ? incoming.leaveRequests : current.leaveRequests,
       payrollRecords: incoming.payrollRecords !== undefined ? incoming.payrollRecords : current.payrollRecords,
       systemSettings: incoming.systemSettings !== undefined ? { ...current.systemSettings, ...incoming.systemSettings } : current.systemSettings,
@@ -248,7 +303,7 @@ app.post('/api/sync-data', (req, res) => {
 app.post('/api/staff', (req, res) => {
   try {
     const newStaff = req.body;
-    if (!newStaff || !newStaff.id) {
+    if (!newStaff || !newStaff.id || !newStaff.name) {
       return res.status(400).json({ success: false, message: 'Invalid staff payload' });
     }
 

@@ -16,7 +16,11 @@ import {
 } from 'lucide-react';
 import { useApp } from '../context/AppContext';
 import { exportMonthlyPayrollPdf, exportEmployeePaySlipPdf } from '../utils/pdfExport';
-import { exportMonthlyPayrollExcel, exportAllRecordsToExcel } from '../utils/excelExport';
+import {
+  exportMonthlyPayrollExcel,
+  exportAllRecordsToExcel,
+  exportDailyPunchSummaryExcel,
+} from '../utils/excelExport';
 import { PayrollRecord } from '../types';
 
 export const PayrollSection: React.FC = () => {
@@ -37,6 +41,7 @@ export const PayrollSection: React.FC = () => {
   );
   const [searchQuery, setSearchQuery] = useState<string>('');
   const [previewPayslip, setPreviewPayslip] = useState<PayrollRecord | null>(null);
+  const [selectedEmployeePunchAudit, setSelectedEmployeePunchAudit] = useState<PayrollRecord | null>(null);
   const [isExportingExcel, setIsExportingExcel] = useState<boolean>(false);
 
   const months = [
@@ -325,6 +330,14 @@ export const PayrollSection: React.FC = () => {
                     <td className="py-3 px-3 text-center">
                       <div className="flex items-center justify-center gap-1.5">
                         <button
+                          onClick={() => setSelectedEmployeePunchAudit(rec)}
+                          title="View Date-Wise Daily Punch In/Out Breakdown"
+                          className="px-2 py-1.5 rounded-lg border border-emerald-200 bg-emerald-50 text-emerald-700 hover:bg-emerald-100 text-[11px] font-semibold inline-flex items-center gap-1 transition"
+                        >
+                          <Clock className="w-3 h-3" />
+                          <span>Punches</span>
+                        </button>
+                        <button
                           onClick={() => setPreviewPayslip(rec)}
                           title="Quick View Slip"
                           className="p-1.5 rounded-lg border border-slate-200 text-slate-600 hover:bg-slate-100 hover:text-slate-900 transition"
@@ -348,6 +361,160 @@ export const PayrollSection: React.FC = () => {
           </table>
         </div>
       </div>
+
+      {/* Date-Wise Daily Punch Audit Breakdown Modal */}
+      {selectedEmployeePunchAudit && (() => {
+        const empAttList = attendance
+          .filter(
+            (a) =>
+              a.employeeId === selectedEmployeePunchAudit.employeeId &&
+              a.date.startsWith(selectedPayrollMonth || '2026-08')
+          )
+          .sort((a, b) => b.date.localeCompare(a.date));
+
+        return (
+          <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/60 backdrop-blur-xs animate-in fade-in duration-200">
+            <div className="w-full max-w-2xl bg-white rounded-2xl shadow-2xl border border-slate-200 overflow-hidden flex flex-col max-h-[85vh]">
+              <div className="bg-slate-900 text-white px-6 py-4 flex items-center justify-between">
+                <div className="flex items-center gap-2">
+                  <Clock className="w-5 h-5 text-emerald-400" />
+                  <div>
+                    <h3 className="font-semibold text-sm">
+                      Daily Punch In/Out Audit: {selectedEmployeePunchAudit.employeeName}
+                    </h3>
+                    <p className="text-[11px] text-slate-400">
+                      {selectedEmployeePunchAudit.department} • Period: {selectedPayrollMonth} ({empAttList.length} Recorded Punch Days)
+                    </p>
+                  </div>
+                </div>
+                <button
+                  onClick={() => setSelectedEmployeePunchAudit(null)}
+                  className="text-slate-400 hover:text-white text-base font-bold"
+                >
+                  ✕
+                </button>
+              </div>
+
+              <div className="p-5 overflow-y-auto space-y-4 text-xs flex-1">
+                <div className="flex items-center justify-between bg-slate-50 p-3 rounded-xl border border-slate-200">
+                  <div className="space-y-0.5">
+                    <span className="text-slate-500 font-medium">Monthly Attendance Progress</span>
+                    <div className="font-semibold text-slate-900 text-sm">
+                      {selectedEmployeePunchAudit.daysPresent} Days Present • {selectedEmployeePunchAudit.totalRegularHours} Regular Hrs • {selectedEmployeePunchAudit.totalOvertimeHours} OT Hrs
+                    </div>
+                  </div>
+                  <button
+                    onClick={async () => {
+                      await exportDailyPunchSummaryExcel({
+                        attendanceList: empAttList,
+                        employees,
+                        monthStr: selectedPayrollMonth,
+                        title: `DRK Goods Daily Punch - ${selectedEmployeePunchAudit.employeeName}`,
+                      });
+                      showNotification('success', `Exported Punch Ledger for ${selectedEmployeePunchAudit.employeeName}`);
+                    }}
+                    className="px-3 py-1.5 rounded-lg bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-semibold inline-flex items-center gap-1.5 transition"
+                  >
+                    <Download className="w-3.5 h-3.5" />
+                    <span>Download Excel</span>
+                  </button>
+                </div>
+
+                {empAttList.length === 0 ? (
+                  <div className="text-center py-8 text-slate-500">
+                    No individual punch records found for this month yet.
+                  </div>
+                ) : (
+                  <div className="border border-slate-200 rounded-xl overflow-hidden">
+                    <table className="w-full text-left text-xs">
+                      <thead className="bg-slate-100 text-slate-600 font-semibold border-b border-slate-200">
+                        <tr>
+                          <th className="py-2.5 px-3">Date</th>
+                          <th className="py-2.5 px-3">Punch-In</th>
+                          <th className="py-2.5 px-3">Punch-Out</th>
+                          <th className="py-2.5 px-3">Duration</th>
+                          <th className="py-2.5 px-3">OT</th>
+                          <th className="py-2.5 px-3">Status</th>
+                        </tr>
+                      </thead>
+                      <tbody className="divide-y divide-slate-100">
+                        {empAttList.map((att) => {
+                          const inPunch = att.punches?.find((p) => p.type === 'check_in');
+                          const outPunch = att.punches?.find((p) => p.type === 'check_out');
+                          const isAuto10 = outPunch?.overrideNote?.includes('10 Hours') || outPunch?.overrideNote?.includes('Auto');
+
+                          const workHrs = Math.floor((att.totalWorkMinutes || 0) / 60);
+                          const workMins = (att.totalWorkMinutes || 0) % 60;
+                          const otHrs = Math.floor((att.overtimeMinutes || 0) / 60);
+                          const otMins = (att.overtimeMinutes || 0) % 60;
+
+                          return (
+                            <tr key={att.id} className="hover:bg-slate-50">
+                              <td className="py-2.5 px-3 font-mono font-medium text-slate-900">
+                                {att.date}
+                              </td>
+                              <td className="py-2.5 px-3 text-emerald-700 font-mono">
+                                {att.checkInTime ? new Date(att.checkInTime).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) : '--'}
+                              </td>
+                              <td className="py-2.5 px-3 font-mono">
+                                {att.checkOutTime ? (
+                                  <div>
+                                    <span className="text-slate-800 font-semibold">
+                                      {new Date(att.checkOutTime).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+                                    </span>
+                                    {isAuto10 && (
+                                      <span className="ml-1 text-[9px] bg-blue-100 text-blue-700 px-1 py-0.2 rounded font-bold">
+                                        Auto 10h
+                                      </span>
+                                    )}
+                                  </div>
+                                ) : (
+                                  <span className="text-emerald-600 font-bold text-[10px]">In Progress</span>
+                                )}
+                              </td>
+                              <td className="py-2.5 px-3 font-mono text-slate-800">
+                                {workHrs}h {workMins}m
+                              </td>
+                              <td className="py-2.5 px-3 font-mono">
+                                {(att.overtimeMinutes || 0) > 0 ? (
+                                  <span className="text-amber-600 font-bold">+{otHrs}h {otMins}m</span>
+                                ) : (
+                                  <span className="text-slate-400">-</span>
+                                )}
+                              </td>
+                              <td className="py-2.5 px-3">
+                                <span className={`px-2 py-0.5 rounded text-[10px] font-bold uppercase ${
+                                  att.status === 'present'
+                                    ? 'bg-emerald-100 text-emerald-800'
+                                    : att.status === 'late'
+                                    ? 'bg-amber-100 text-amber-800'
+                                    : 'bg-red-100 text-red-800'
+                                }`}>
+                                  {att.status}
+                                </span>
+                              </td>
+                            </tr>
+                          );
+                        })}
+                      </tbody>
+                    </table>
+                  </div>
+                )}
+              </div>
+
+              <div className="p-4 bg-slate-50 border-t border-slate-200 flex justify-end">
+                <button
+                  type="button"
+                  onClick={() => setSelectedEmployeePunchAudit(null)}
+                  className="px-4 py-2 bg-slate-800 hover:bg-slate-900 text-white rounded-xl text-xs font-semibold"
+                >
+                  Close Audit View
+                </button>
+              </div>
+            </div>
+          </div>
+        );
+      })()}
 
       {/* Pay Slip Modal Preview */}
       {previewPayslip && (

@@ -559,11 +559,13 @@ export async function exportStaffDirectoryExcel(
   sheet.columns = [
     { header: 'Staff ID', key: 'id' },
     { header: 'Staff Full Name', key: 'name' },
+    { header: 'Vendor / Source', key: 'vendor' },
     { header: 'Mobile Phone (OTP Verification)', key: 'phone' },
     { header: 'Email Address', key: 'email' },
     { header: 'Role', key: 'role' },
     { header: 'Department', key: 'department' },
     { header: 'Designation / Title', key: 'designation' },
+    { header: 'Date of Joining', key: 'joinDate' },
     { header: 'Day-wise Week Off', key: 'weekOff' },
     { header: 'Yearly CTC (INR)', key: 'yearlySalary' },
     { header: 'Monthly Base Salary (INR)', key: 'baseSalary' },
@@ -577,13 +579,15 @@ export async function exportStaffDirectoryExcel(
     sheet.addRow({
       id: emp.id,
       name: emp.name,
+      vendor: emp.vendor || 'Direct',
       phone: emp.phone || 'N/A',
       email: emp.email || 'N/A',
       role: emp.role.toUpperCase(),
       department: emp.department,
       designation: emp.designation,
+      joinDate: emp.joinDate || 'N/A',
       weekOff: weekOffStr,
-      yearlySalary: emp.yearlySalary || 1440000,
+      yearlySalary: emp.yearlySalary || 180000,
       baseSalary: emp.monthlyBaseSalary,
       office: loc?.name || 'DRK Goods HQ',
       bank: emp.bankAccount,
@@ -593,5 +597,102 @@ export async function exportStaffDirectoryExcel(
   applyTableStyles(sheet, '1E293B');
 
   const filename = `DRK_Goods_Staff_Directory_${new Date().toISOString().slice(0, 10)}.xlsx`;
+  await downloadWorkbook(workbook, filename);
+}
+
+/**
+ * 6. Export Date-Wise Daily Punch In & Punch Out Summary to Excel
+ */
+export async function exportDailyPunchSummaryExcel({
+  attendanceList,
+  employees,
+  filterDate,
+  monthStr,
+  title = 'DRK Goods Daily Punch In-Out Summary',
+}: {
+  attendanceList: DailyAttendance[];
+  employees: Employee[];
+  filterDate?: string;
+  monthStr?: string;
+  title?: string;
+}) {
+  const workbook = new ExcelJS.Workbook();
+  workbook.creator = 'DRK Goods Enterprise';
+
+  const sheet = workbook.addWorksheet('Daily Punch Summary');
+  sheet.columns = [
+    { header: 'No.', key: 'num' },
+    { header: 'Date', key: 'date' },
+    { header: 'Day', key: 'day' },
+    { header: 'Staff ID', key: 'employeeId' },
+    { header: 'Employee Name', key: 'employeeName' },
+    { header: 'Department', key: 'department' },
+    { header: 'Designation', key: 'designation' },
+    { header: 'Punch-In Time', key: 'checkIn' },
+    { header: 'Punch-In Location', key: 'inLocation' },
+    { header: 'Punch-Out Time', key: 'checkOut' },
+    { header: 'Punch-Out Status', key: 'outStatus' },
+    { header: 'Total Work Hours', key: 'workHours' },
+    { header: 'Overtime (OT)', key: 'otHours' },
+    { header: 'Attendance Status', key: 'status' },
+    { header: 'Payroll Linkage', key: 'payrollLink' },
+    { header: 'GPS Verification', key: 'gpsStatus' },
+    { header: 'Notes / Audit Trail', key: 'notes' },
+  ];
+
+  let filtered = [...attendanceList];
+  if (filterDate && filterDate !== 'all') {
+    filtered = filtered.filter((a) => a.date === filterDate);
+  } else if (monthStr && monthStr !== 'all') {
+    filtered = filtered.filter((a) => a.date.startsWith(monthStr));
+  }
+
+  filtered.sort((a, b) => b.date.localeCompare(a.date));
+
+  filtered.forEach((rec, idx) => {
+    const emp = employees.find((e) => e.id === rec.employeeId);
+    const day = formatIsoToLocalDate(rec.date, { includeWeekday: true }).split(',')[0];
+    const inPunch = rec.punches?.find((p) => p.type === 'check_in') || rec.punches?.[0];
+    const outPunch = rec.punches?.find((p) => p.type === 'check_out');
+
+    const workHrs = Number(((rec.totalWorkMinutes || 0) / 60).toFixed(2));
+    const otHrs = Number(((rec.overtimeMinutes || 0) / 60).toFixed(2));
+
+    let outStatus = 'Shift In Progress';
+    if (rec.checkOutTime) {
+      if (outPunch?.overrideNote?.includes('10 Hours') || outPunch?.overrideNote?.includes('Auto')) {
+        outStatus = 'Auto 10hr Checkout';
+      } else {
+        outStatus = 'Completed';
+      }
+    } else if (rec.status === 'absent') {
+      outStatus = 'Absent';
+    }
+
+    sheet.addRow({
+      num: idx + 1,
+      date: rec.date,
+      day,
+      employeeId: rec.employeeId,
+      employeeName: emp?.name || 'Staff Member',
+      department: emp?.department || '--',
+      designation: emp?.designation || '--',
+      checkIn: rec.checkInTime ? formatIsoToLocalTime(rec.checkInTime) : '--',
+      inLocation: inPunch?.locationName || 'DRK Goods HQ',
+      checkOut: rec.checkOutTime ? formatIsoToLocalTime(rec.checkOutTime) : (rec.checkInTime ? 'Active (Working)' : '--'),
+      outStatus,
+      workHours: `${workHrs} hrs (${Math.floor((rec.totalWorkMinutes || 0) / 60)}h ${(rec.totalWorkMinutes || 0) % 60}m)`,
+      otHours: otHrs > 0 ? `${otHrs} hrs (${Math.floor((rec.overtimeMinutes || 0) / 60)}h ${(rec.overtimeMinutes || 0) % 60}m)` : '0 hrs',
+      status: rec.status.toUpperCase(),
+      payrollLink: 'Synced to Month-End Payroll',
+      gpsStatus: rec.isFlaggedForGps ? 'Flagged / Remote' : 'GPS Verified',
+      notes: rec.notes || (outPunch?.overrideNote || ''),
+    });
+  });
+
+  applyTableStyles(sheet, '047857'); // Emerald 700
+
+  const dateTag = filterDate && filterDate !== 'all' ? filterDate : (monthStr || 'All_Dates');
+  const filename = `DRK_Goods_Daily_Punch_Summary_${dateTag}.xlsx`;
   await downloadWorkbook(workbook, filename);
 }

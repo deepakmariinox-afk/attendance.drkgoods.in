@@ -1,12 +1,16 @@
 {
+  "id": "/",
   "name": "DRK Goods Attendance & Payroll",
   "short_name": "DRK Goods",
   "description": "Smart Geofenced Workforce Attendance, OTP Verification & Payroll System for DRK Goods Enterprise.",
   "start_url": "/",
+  "scope": "/",
   "display": "standalone",
+  "display_override": ["standalone", "minimal-ui", "browser"],
   "background_color": "#0f172a",
-  "theme_color": "#2563eb",
+  "theme_color": "#0f172a",
   "orientation": "portrait-primary",
+  "categories": ["business", "productivity", "utilities"],
   "icons": [
     {
       "src": "/icon-192.svg",
@@ -20,5 +24,15 @@
       "type": "image/svg+xml",
       "purpose": "any maskable"
     }
+  ],
+  "shortcuts": [
+    {
+      "name": "Punch Clock",
+      "short_name": "Punch In/Out",
+      "description": "Mark attendance with GPS",
+      "url": "/",
+      "icons": [{ "src": "/icon-192.svg", "sizes": "192x192" }]
+    }
   ]
 }
+

@@ -35,6 +35,7 @@ import {
   exportAttendanceExcel,
   exportMonthlyPayrollExcel,
   exportStaffDirectoryExcel,
+  exportDailyPunchSummaryExcel,
 } from '../utils/excelExport';
 import { RosterUploadModal } from './RosterUploadModal';
 
@@ -73,7 +74,62 @@ export const AdminOverview: React.FC = () => {
   const [isConfirmResetModalOpen, setIsConfirmResetModalOpen] = useState<boolean>(false);
   const [isRosterUploadModalOpen, setIsRosterUploadModalOpen] = useState<boolean>(false);
 
-  // Flatten punch audit logs
+  // View mode switcher: Date-wise Daily Summary vs Raw GPS Telemetry Audit
+  const [attendanceViewTab, setAttendanceViewTab] = useState<'daily_summary' | 'raw_telemetry'>('daily_summary');
+  
+  // Date-wise filtering
+  const [dateFilterMode, setDateFilterMode] = useState<'today' | 'yesterday' | 'custom' | 'this_month' | 'all'>('today');
+  const [customSelectedDate, setCustomSelectedDate] = useState<string>(todayStr);
+
+  const getYesterdayStr = () => {
+    const d = new Date();
+    d.setDate(d.getDate() - 1);
+    return d.toISOString().slice(0, 10);
+  };
+
+  const activeFilterDate =
+    dateFilterMode === 'today'
+      ? todayStr
+      : dateFilterMode === 'yesterday'
+      ? getYesterdayStr()
+      : dateFilterMode === 'custom'
+      ? customSelectedDate
+      : undefined;
+
+  // Filter attendance records date-wise
+  const filteredDailySummaries = attendance.filter((rec) => {
+    const emp = employees.find((e) => e.id === rec.employeeId);
+    const empName = emp?.name || '';
+    const empDept = emp?.department || '';
+    const locName = locations.find((l) => l.id === emp?.assignedLocationId)?.name || '';
+
+    // 1. Date filter
+    let matchDate = true;
+    if (dateFilterMode === 'today') {
+      matchDate = rec.date === todayStr;
+    } else if (dateFilterMode === 'yesterday') {
+      matchDate = rec.date === getYesterdayStr();
+    } else if (dateFilterMode === 'custom') {
+      matchDate = rec.date === customSelectedDate;
+    } else if (dateFilterMode === 'this_month') {
+      matchDate = rec.date.startsWith(selectedPayrollMonth || '2026-08');
+    }
+
+    // 2. Search query filter
+    const matchSearch =
+      empName.toLowerCase().includes(searchQuery.toLowerCase()) ||
+      empDept.toLowerCase().includes(searchQuery.toLowerCase()) ||
+      rec.date.includes(searchQuery);
+
+    // 3. Dropdown filters
+    const matchDept = selectedDept === 'all' || empDept === selectedDept;
+    const matchStatus = selectedStatus === 'all' || rec.status === selectedStatus;
+    const matchLoc = selectedLocation === 'all' || locName === selectedLocation;
+
+    return matchDate && matchSearch && matchDept && matchStatus && matchLoc;
+  }).sort((a, b) => b.date.localeCompare(a.date));
+
+  // Flatten punch audit logs for Raw Telemetry view
   const allPunchLogs = attendance.flatMap((rec) => {
     const emp = employees.find((e) => e.id === rec.employeeId);
     return rec.punches.map((p) => ({
@@ -96,11 +152,23 @@ export const AdminOverview: React.FC = () => {
       deviceInfo: p.deviceInfo,
       status: rec.status,
       overrideNote: p.overrideNote || rec.notes,
+      rawPunch: p,
     }));
   });
 
-  // Filter logs
+  // Filter raw telemetry logs
   const filteredLogs = allPunchLogs.filter((log) => {
+    let matchDate = true;
+    if (dateFilterMode === 'today') {
+      matchDate = log.date === todayStr;
+    } else if (dateFilterMode === 'yesterday') {
+      matchDate = log.date === getYesterdayStr();
+    } else if (dateFilterMode === 'custom') {
+      matchDate = log.date === customSelectedDate;
+    } else if (dateFilterMode === 'this_month') {
+      matchDate = log.date.startsWith(selectedPayrollMonth || '2026-08');
+    }
+
     const matchSearch =
       log.employeeName.toLowerCase().includes(searchQuery.toLowerCase()) ||
       log.department.toLowerCase().includes(searchQuery.toLowerCase()) ||
@@ -110,8 +178,27 @@ export const AdminOverview: React.FC = () => {
     const matchStatus = selectedStatus === 'all' || log.status === selectedStatus;
     const matchLoc = selectedLocation === 'all' || log.locationName === selectedLocation;
 
-    return matchSearch && matchDept && matchStatus && matchLoc;
+    return matchDate && matchSearch && matchDept && matchStatus && matchLoc;
   });
+
+  const handleExportDailyPunchExcel = async () => {
+    try {
+      setIsExporting(true);
+      await exportDailyPunchSummaryExcel({
+        attendanceList: attendance,
+        employees,
+        filterDate: dateFilterMode !== 'this_month' && dateFilterMode !== 'all' ? activeFilterDate : undefined,
+        monthStr: dateFilterMode === 'this_month' ? (selectedPayrollMonth || '2026-08') : undefined,
+        title: `DRK Goods Daily Punch Summary (${dateFilterMode.toUpperCase()})`,
+      });
+      showNotification('success', 'Date-wise Daily Punch In/Out Summary exported to Excel (.xlsx).');
+    } catch (err) {
+      console.error(err);
+      showNotification('error', 'Failed to export Daily Punch Excel.');
+    } finally {
+      setIsExporting(false);
+    }
+  };
 
   const handleExportAllPayroll = () => {
     exportMonthlyPayrollPdf(payrollRecords, 'August 2026', currentUser.name);
@@ -465,13 +552,25 @@ export const AdminOverview: React.FC = () => {
           </button>
 
           <button
-            onClick={handleExportAttendanceExcel}
+            onClick={handleExportDailyPunchExcel}
             disabled={isExporting}
-            className="px-3 py-2 rounded-xl bg-white hover:bg-emerald-100 text-emerald-800 border border-emerald-300 text-xs font-medium inline-flex items-center gap-1.5 transition cursor-pointer"
-            title="Download Attendance Records in Excel"
+            className="px-3 py-2 rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white shadow-xs text-xs font-medium inline-flex items-center gap-1.5 transition cursor-pointer"
+            title="Download Date-Wise Daily Punch-In & Punch-Out Summary to Excel"
+            id="btn-admin-export-daily-punch"
           >
-            <Calendar className="w-3.5 h-3.5 text-emerald-600" />
-            <span>Attendance Log (.xlsx)</span>
+            <FileSpreadsheet className="w-3.5 h-3.5" />
+            <span>Daily Punch Summary (.xlsx)</span>
+          </button>
+
+          <button
+            onClick={handleExportAllRecordsExcel}
+            disabled={isExporting}
+            className="px-3 py-2 rounded-xl bg-slate-800 hover:bg-slate-900 text-white shadow-xs text-xs font-medium inline-flex items-center gap-1.5 transition cursor-pointer"
+            title="Download Complete Multi-Tab Database (All 6 Tables)"
+            id="btn-admin-export-excel"
+          >
+            <Download className="w-3.5 h-3.5" />
+            <span>Master Database (.xlsx)</span>
           </button>
 
           {/* Clear Attendance Button */}
@@ -498,15 +597,125 @@ export const AdminOverview: React.FC = () => {
         </div>
       </div>
 
-      {/* Filter and Search Bar */}
-      <div className="bg-white rounded-2xl border border-slate-200 p-4 sm:p-5 shadow-xs space-y-3">
-        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3">
+      {/* View Switcher: Date-wise Daily Summary vs Raw GPS Telemetry Audit */}
+      <div className="bg-white rounded-2xl border border-slate-200 p-4 sm:p-5 shadow-xs space-y-4">
+        <div className="flex flex-col md:flex-row md:items-center justify-between gap-3 border-b border-slate-100 pb-3">
+          <div className="flex items-center gap-2">
+            <button
+              type="button"
+              onClick={() => setAttendanceViewTab('daily_summary')}
+              className={`px-4 py-2 rounded-xl text-xs font-bold transition inline-flex items-center gap-2 cursor-pointer ${
+                attendanceViewTab === 'daily_summary'
+                  ? 'bg-blue-600 text-white shadow-sm'
+                  : 'bg-slate-100 hover:bg-slate-200 text-slate-700'
+              }`}
+            >
+              <Calendar className="w-4 h-4" />
+              <span>Date-Wise Daily Punch Summary</span>
+              <span className={`px-2 py-0.5 rounded-full text-[10px] font-bold ${
+                attendanceViewTab === 'daily_summary' ? 'bg-blue-700 text-white' : 'bg-slate-200 text-slate-700'
+              }`}>
+                {filteredDailySummaries.length}
+              </span>
+            </button>
+
+            <button
+              type="button"
+              onClick={() => setAttendanceViewTab('raw_telemetry')}
+              className={`px-4 py-2 rounded-xl text-xs font-bold transition inline-flex items-center gap-2 cursor-pointer ${
+                attendanceViewTab === 'raw_telemetry'
+                  ? 'bg-blue-600 text-white shadow-sm'
+                  : 'bg-slate-100 hover:bg-slate-200 text-slate-700'
+              }`}
+            >
+              <Radio className="w-4 h-4" />
+              <span>GPS Telemetry Audit Logs</span>
+              <span className={`px-2 py-0.5 rounded-full text-[10px] font-bold ${
+                attendanceViewTab === 'raw_telemetry' ? 'bg-blue-700 text-white' : 'bg-slate-200 text-slate-700'
+              }`}>
+                {filteredLogs.length}
+              </span>
+            </button>
+          </div>
+
+          {/* Date Range Quick Selector */}
+          <div className="flex flex-wrap items-center gap-1.5">
+            <span className="text-xs text-slate-500 font-medium mr-1">Date:</span>
+            <button
+              type="button"
+              onClick={() => setDateFilterMode('today')}
+              className={`px-2.5 py-1.5 rounded-lg text-xs font-semibold transition cursor-pointer ${
+                dateFilterMode === 'today'
+                  ? 'bg-blue-50 text-blue-700 border border-blue-300'
+                  : 'bg-slate-50 text-slate-600 hover:bg-slate-100 border border-slate-200'
+              }`}
+            >
+              Today ({todayStr})
+            </button>
+
+            <button
+              type="button"
+              onClick={() => setDateFilterMode('yesterday')}
+              className={`px-2.5 py-1.5 rounded-lg text-xs font-semibold transition cursor-pointer ${
+                dateFilterMode === 'yesterday'
+                  ? 'bg-blue-50 text-blue-700 border border-blue-300'
+                  : 'bg-slate-50 text-slate-600 hover:bg-slate-100 border border-slate-200'
+              }`}
+            >
+              Yesterday
+            </button>
+
+            <button
+              type="button"
+              onClick={() => setDateFilterMode('this_month')}
+              className={`px-2.5 py-1.5 rounded-lg text-xs font-semibold transition cursor-pointer ${
+                dateFilterMode === 'this_month'
+                  ? 'bg-blue-50 text-blue-700 border border-blue-300'
+                  : 'bg-slate-50 text-slate-600 hover:bg-slate-100 border border-slate-200'
+              }`}
+            >
+              This Month ({selectedPayrollMonth || 'Current'})
+            </button>
+
+            <button
+              type="button"
+              onClick={() => setDateFilterMode('all')}
+              className={`px-2.5 py-1.5 rounded-lg text-xs font-semibold transition cursor-pointer ${
+                dateFilterMode === 'all'
+                  ? 'bg-blue-50 text-blue-700 border border-blue-300'
+                  : 'bg-slate-50 text-slate-600 hover:bg-slate-100 border border-slate-200'
+              }`}
+            >
+              All Recorded Dates
+            </button>
+
+            <div className="flex items-center gap-1 ml-1">
+              <input
+                type="date"
+                value={customSelectedDate}
+                onChange={(e) => {
+                  setCustomSelectedDate(e.target.value);
+                  setDateFilterMode('custom');
+                }}
+                className={`px-2 py-1 text-xs rounded-lg border outline-none font-medium cursor-pointer ${
+                  dateFilterMode === 'custom'
+                    ? 'border-blue-500 bg-blue-50/50 text-blue-900 font-bold'
+                    : 'border-slate-200 bg-slate-50 text-slate-600'
+                }`}
+                title="Select any specific date"
+              />
+            </div>
+          </div>
+        </div>
+
+        {/* Filter and Search Bar */}
+        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3 pt-1">
           {/* Search */}
           <div className="relative">
             <Search className="w-4 h-4 text-slate-400 absolute left-3 top-1/2 -translate-y-1/2" />
             <input
               type="text"
-              placeholder="Search by staff name, role..."
+              placeholder="Search staff name, department, date..."
               value={searchQuery}
               onChange={(e) => setSearchQuery(e.target.value)}
               className="w-full pl-9 pr-3 py-2 text-xs bg-slate-50 border border-slate-200 rounded-xl outline-none focus:bg-white focus:ring-2 focus:ring-blue-500"
@@ -555,170 +764,386 @@ export const AdminOverview: React.FC = () => {
               <option value="all">All Attendance Statuses</option>
               <option value="present">Present (On-time)</option>
               <option value="late">Late Arrival</option>
+              <option value="half_day">Half Day</option>
               <option value="absent">Absent</option>
             </select>
           </div>
         </div>
       </div>
 
-      {/* Full Audit Log Table */}
-      <div className="bg-white rounded-2xl border border-slate-200 p-5 sm:p-6 shadow-xs space-y-4">
-        <div className="flex items-center justify-between border-b border-slate-100 pb-3">
-          <div>
-            <h3 className="font-semibold text-slate-900 text-base">Real-Time Audit Records ({filteredLogs.length})</h3>
-            <p className="text-xs text-slate-500">Every GPS coordinate, OTP verification, and device imprint</p>
-          </div>
-        </div>
-
-        {filteredLogs.length === 0 ? (
-          <div className="text-center py-12 space-y-3">
-            <div className="w-12 h-12 rounded-full bg-slate-100 text-slate-400 flex items-center justify-center mx-auto">
-              <Calendar className="w-6 h-6" />
-            </div>
+      {/* VIEW TAB 1: DATE-WISE DAILY PUNCH SUMMARY TABLE */}
+      {attendanceViewTab === 'daily_summary' && (
+        <div className="bg-white rounded-2xl border border-slate-200 p-5 sm:p-6 shadow-xs space-y-4">
+          <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 border-b border-slate-100 pb-3">
             <div>
-              <h4 className="text-sm font-bold text-slate-800">No Attendance Records Found</h4>
-              <p className="text-xs text-slate-500 max-w-md mx-auto mt-1">
-                All previous old attendance records have been cleared. When staff check in with GPS + OTP verification, real-time telemetry will appear here.
+              <h3 className="font-semibold text-slate-900 text-base flex items-center gap-2">
+                <span>Date-Wise Daily Punch In / Punch Out Summary</span>
+                <span className="px-2 py-0.5 rounded-full bg-emerald-100 text-emerald-800 text-xs font-bold">
+                  {filteredDailySummaries.length} Records
+                </span>
+              </h3>
+              <p className="text-xs text-slate-500">
+                Daily timestamps, duration, overtime, and automatic link to month-end payroll calculations
               </p>
             </div>
+
+            <button
+              onClick={handleExportDailyPunchExcel}
+              disabled={isExporting}
+              className="px-3 py-1.5 rounded-xl bg-emerald-50 hover:bg-emerald-100 text-emerald-700 border border-emerald-300 text-xs font-semibold inline-flex items-center gap-1.5 transition self-start sm:self-auto cursor-pointer"
+            >
+              <Download className="w-3.5 h-3.5 text-emerald-600" />
+              <span>Export Daily Summary (.xlsx)</span>
+            </button>
           </div>
-        ) : (
-          <div className="overflow-x-auto">
-            <table className="w-full text-left text-xs">
-              <thead>
-                <tr className="border-b border-slate-200 text-slate-500 font-semibold uppercase tracking-wider">
-                  <th className="py-3 px-3">Date / Time</th>
-                  <th className="py-3 px-3">Employee</th>
-                  <th className="py-3 px-3">Type</th>
-                  <th className="py-3 px-3">Location & Radius</th>
-                  <th className="py-3 px-3">GPS Coordinates</th>
-                  <th className="py-3 px-3">OTP & Identity</th>
-                  <th className="py-3 px-3">Geofence Status</th>
-                  <th className="py-3 px-3 text-center">Admin Actions</th>
-                </tr>
-              </thead>
-              <tbody className="divide-y divide-slate-100">
-                {filteredLogs.slice(0, 50).map((log) => (
-                  <tr key={log.punchId} className="hover:bg-slate-50 transition">
-                    <td className="py-3 px-3">
-                      <div className="font-medium text-slate-900">{formatIsoToLocalDate(log.date)}</div>
-                      <div className="text-[11px] text-blue-600 font-mono font-medium">
-                        {formatIsoToLocalTime(log.timestamp, { includeSeconds: true })}
-                      </div>
-                    </td>
 
-                    <td className="py-3 px-3">
-                      <div className="font-semibold text-slate-900">{log.employeeName}</div>
-                      <div className="text-[11px] text-slate-500">{log.department}</div>
-                    </td>
-
-                    <td className="py-3 px-3">
-                      <span
-                        className={`px-2 py-0.5 rounded text-[10px] font-bold uppercase ${
-                          log.type === 'check_in'
-                            ? 'bg-emerald-100 text-emerald-800'
-                            : log.type === 'check_out'
-                            ? 'bg-red-100 text-red-800'
-                            : 'bg-amber-100 text-amber-800'
-                        }`}
-                      >
-                        {log.type.replace('_', ' ')}
-                      </span>
-                    </td>
-
-                    <td className="py-3 px-3 text-slate-700">
-                      <div className="font-medium">{log.locationName}</div>
-                      <div className="text-[11px] text-slate-400 font-mono">
-                        {log.distanceFromOfficeMeters}m from center
-                      </div>
-                    </td>
-
-                    <td className="py-3 px-3 font-mono text-[11px] text-slate-600">
-                      <div>Lat: {log.coordinates.latitude}</div>
-                      <div>Lon: {log.coordinates.longitude}</div>
-                    </td>
-
-                    <td className="py-3 px-3">
-                      <div className="flex items-center gap-1 text-emerald-700 font-medium">
-                        <ShieldCheck className="w-3.5 h-3.5" />
-                        <span>OTP Verified</span>
-                      </div>
-                      <div className="text-[11px] text-slate-400 font-mono">
-                        Phone: ...{log.phone.slice(-4)}
-                      </div>
-                    </td>
-
-                    <td className="py-3 px-3">
-                      {log.overrideNote?.includes('10 Hours') || log.overrideNote?.includes('Auto Punch Out') ? (
-                        <div className="space-y-1">
-                          <span className="px-2.5 py-0.5 rounded-full bg-blue-100 text-blue-800 border border-blue-300 text-[10px] font-bold inline-block">
-                            Auto 10-Hour Shift Completed
-                          </span>
-                          <div className="text-[10px] text-blue-600 italic">
-                            System auto-checkout at 10h limit
-                          </div>
-                        </div>
-                      ) : log.isWithinGeofence ? (
-                        <span className="px-2.5 py-0.5 rounded-full bg-emerald-50 text-emerald-700 border border-emerald-200 text-[10px] font-bold">
-                          Within Geofence
-                        </span>
-                      ) : (
-                        <div className="space-y-1">
-                          <span className="px-2.5 py-0.5 rounded-full bg-red-50 text-red-700 border border-red-200 text-[10px] font-bold">
-                            Out-of-Bounds ({log.distanceFromOfficeMeters}m)
-                          </span>
-                          {log.overrideNote && (
-                            <div className="text-[10px] text-slate-500 italic max-w-xs">
-                              Note: {log.overrideNote}
-                            </div>
-                          )}
-                        </div>
-                      )}
-                    </td>
-
-                    <td className="py-3 px-3 text-center">
-                      <div className="flex items-center justify-center gap-1.5">
-                        {/* Send individual punch alert to Admin Email */}
-                        <button
-                          type="button"
-                          onClick={() => {
-                            const emp = employees.find((e) => e.id === log.employeeId) || {
-                              id: log.employeeId,
-                              name: log.employeeName,
-                              phone: log.phone,
-                              department: log.department,
-                              role: 'staff',
-                              hourlyRate: 100,
-                              monthlySalary: 25000,
-                              status: 'active',
-                            };
-                            sendManualPunchAlertEmail(log.rawPunch, emp as any);
-                          }}
-                          className="px-2 py-1 rounded-lg border border-indigo-200 bg-indigo-50 hover:bg-indigo-100 text-indigo-700 text-[11px] font-semibold transition inline-flex items-center gap-1 cursor-pointer"
-                          title={`Send punch email notification for ${log.employeeName} to Admin`}
-                        >
-                          <Mail className="w-3 h-3" />
-                          <span>Email Alert</span>
-                        </button>
-
-                        <button
-                          type="button"
-                          onClick={() => adminPunchOutStaff(log.employeeId)}
-                          className="px-2.5 py-1 rounded-lg border border-red-200 bg-red-50 hover:bg-red-100 text-red-700 text-[11px] font-semibold transition inline-flex items-center gap-1 cursor-pointer"
-                          title={`Admin Remote Punch Out for ${log.employeeName} (Anywhere Allowed)`}
-                        >
-                          <LogOut className="w-3 h-3" />
-                          <span>Remote Out</span>
-                        </button>
-                      </div>
-                    </td>
+          {filteredDailySummaries.length === 0 ? (
+            <div className="text-center py-12 space-y-3">
+              <div className="w-12 h-12 rounded-full bg-slate-100 text-slate-400 flex items-center justify-center mx-auto">
+                <Calendar className="w-6 h-6" />
+              </div>
+              <div>
+                <h4 className="text-sm font-bold text-slate-800">No Daily Punch Records for Selected Filter</h4>
+                <p className="text-xs text-slate-500 max-w-md mx-auto mt-1">
+                  When staff members punch in or out on this date, their in-time, out-time, total shift hours, and overtime will appear here and automatically sync to Month-End Payroll.
+                </p>
+              </div>
+            </div>
+          ) : (
+            <div className="overflow-x-auto">
+              <table className="w-full text-left text-xs">
+                <thead>
+                  <tr className="border-b border-slate-200 text-slate-500 font-semibold uppercase tracking-wider">
+                    <th className="py-3 px-3">Date & Day</th>
+                    <th className="py-3 px-3">Staff / Candidate</th>
+                    <th className="py-3 px-3">Punch-In (In Time)</th>
+                    <th className="py-3 px-3">Punch-Out (Out Time)</th>
+                    <th className="py-3 px-3">Shift Hours & OT</th>
+                    <th className="py-3 px-3">Status</th>
+                    <th className="py-3 px-3">Payroll Sync</th>
+                    <th className="py-3 px-3 text-center">Quick Actions</th>
                   </tr>
-                ))}
-              </tbody>
-            </table>
+                </thead>
+                <tbody className="divide-y divide-slate-100">
+                  {filteredDailySummaries.map((rec) => {
+                    const emp = employees.find((e) => e.id === rec.employeeId);
+                    const dayName = formatIsoToLocalDate(rec.date, { includeWeekday: true }).split(',')[0];
+                    const inPunch = rec.punches?.find((p) => p.type === 'check_in') || rec.punches?.[0];
+                    const outPunch = rec.punches?.find((p) => p.type === 'check_out');
+
+                    const isShiftRunning = rec.checkInTime && !rec.checkOutTime;
+                    const isAuto10Hr = outPunch?.overrideNote?.includes('10 Hours') || outPunch?.overrideNote?.includes('Auto');
+
+                    const workHrs = Math.floor((rec.totalWorkMinutes || 0) / 60);
+                    const workMins = (rec.totalWorkMinutes || 0) % 60;
+                    const otHrs = Math.floor((rec.overtimeMinutes || 0) / 60);
+                    const otMins = (rec.overtimeMinutes || 0) % 60;
+
+                    return (
+                      <tr key={rec.id} className="hover:bg-slate-50 transition">
+                        <td className="py-3 px-3">
+                          <div className="font-semibold text-slate-900 font-mono">{rec.date}</div>
+                          <span className="px-1.5 py-0.5 rounded text-[10px] font-bold bg-slate-100 text-slate-600 inline-block mt-0.5">
+                            {dayName}
+                          </span>
+                        </td>
+
+                        <td className="py-3 px-3">
+                          <div className="font-semibold text-slate-900">{emp?.name || 'Staff Member'}</div>
+                          <div className="text-[11px] text-slate-500">{emp?.department || '--'} • {emp?.designation || 'Staff'}</div>
+                          <div className="text-[10px] text-slate-400 font-mono">{emp?.phone || ''}</div>
+                        </td>
+
+                        <td className="py-3 px-3">
+                          {rec.checkInTime ? (
+                            <div className="space-y-0.5">
+                              <div className="font-bold text-emerald-700 font-mono text-[12px] flex items-center gap-1">
+                                <span>{formatIsoToLocalTime(rec.checkInTime, { includeSeconds: false })}</span>
+                              </div>
+                              <div className="text-[10px] text-slate-500">
+                                {inPunch?.locationName || 'DRK Goods HQ'}
+                              </div>
+                              {inPunch?.otpVerified && (
+                                <div className="text-[9px] text-emerald-600 font-medium flex items-center gap-0.5">
+                                  <ShieldCheck className="w-2.5 h-2.5" />
+                                  <span>OTP Verified</span>
+                                </div>
+                              )}
+                            </div>
+                          ) : (
+                            <span className="text-slate-400 italic">--</span>
+                          )}
+                        </td>
+
+                        <td className="py-3 px-3">
+                          {rec.checkOutTime ? (
+                            <div className="space-y-0.5">
+                              <div className="font-bold text-slate-800 font-mono text-[12px]">
+                                {formatIsoToLocalTime(rec.checkOutTime, { includeSeconds: false })}
+                              </div>
+                              {isAuto10Hr ? (
+                                <span className="px-1.5 py-0.5 rounded bg-blue-100 text-blue-800 text-[9px] font-bold inline-block">
+                                  Auto 10-Hr Rule
+                                </span>
+                              ) : (
+                                <span className="text-[10px] text-slate-500">
+                                  {outPunch?.locationName || 'Worksite Out'}
+                                </span>
+                              )}
+                            </div>
+                          ) : isShiftRunning ? (
+                            <div className="space-y-1">
+                              <div className="flex items-center gap-1.5">
+                                <span className="relative flex h-2 w-2">
+                                  <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-emerald-400 opacity-75"></span>
+                                  <span className="relative inline-flex rounded-full h-2 w-2 bg-emerald-500"></span>
+                                </span>
+                                <span className="text-emerald-700 font-bold text-[11px]">Shift Running</span>
+                              </div>
+                              <div className="text-[10px] text-slate-400">Checked In</div>
+                            </div>
+                          ) : (
+                            <span className="text-slate-400 italic">--</span>
+                          )}
+                        </td>
+
+                        <td className="py-3 px-3">
+                          <div className="font-semibold text-slate-900 font-mono">
+                            {workHrs}h {workMins}m
+                          </div>
+                          {(rec.overtimeMinutes || 0) > 0 ? (
+                            <div className="text-[10px] font-bold text-amber-600 font-mono">
+                              +{otHrs}h {otMins}m OT
+                            </div>
+                          ) : (
+                            <div className="text-[10px] text-slate-400">0m OT</div>
+                          )}
+                        </td>
+
+                        <td className="py-3 px-3">
+                          <span
+                            className={`px-2 py-0.5 rounded text-[10px] font-bold uppercase ${
+                              rec.status === 'present'
+                                ? 'bg-emerald-100 text-emerald-800'
+                                : rec.status === 'late'
+                                ? 'bg-amber-100 text-amber-800'
+                                : rec.status === 'half_day'
+                                ? 'bg-orange-100 text-orange-800'
+                                : 'bg-red-100 text-red-800'
+                            }`}
+                          >
+                            {rec.status.replace('_', ' ')}
+                          </span>
+                        </td>
+
+                        <td className="py-3 px-3">
+                          <div className="inline-flex items-center gap-1 px-2 py-0.5 rounded bg-emerald-50 text-emerald-700 border border-emerald-200 text-[10px] font-semibold">
+                            <CheckCircle className="w-3 h-3 text-emerald-600" />
+                            <span>Saved for Payroll</span>
+                          </div>
+                        </td>
+
+                        <td className="py-3 px-3 text-center">
+                          <div className="flex items-center justify-center gap-1.5">
+                            {isShiftRunning && (
+                              <button
+                                type="button"
+                                onClick={() => adminPunchOutStaff(rec.employeeId)}
+                                className="px-2 py-1 rounded-lg border border-red-200 bg-red-50 hover:bg-red-100 text-red-700 text-[11px] font-semibold transition inline-flex items-center gap-1 cursor-pointer"
+                                title={`Remote Punch Out for ${emp?.name || 'Staff'}`}
+                              >
+                                <LogOut className="w-3 h-3" />
+                                <span>Punch Out</span>
+                              </button>
+                            )}
+
+                            {inPunch && (
+                              <button
+                                type="button"
+                                onClick={() => {
+                                  if (emp) {
+                                    sendManualPunchAlertEmail(inPunch, emp as any);
+                                  }
+                                }}
+                                className="px-2 py-1 rounded-lg border border-indigo-200 bg-indigo-50 hover:bg-indigo-100 text-indigo-700 text-[11px] font-semibold transition inline-flex items-center gap-1 cursor-pointer"
+                                title="Send punch notification email to Admin"
+                              >
+                                <Mail className="w-3 h-3" />
+                                <span>Email</span>
+                              </button>
+                            )}
+                          </div>
+                        </td>
+                      </tr>
+                    );
+                  })}
+                </tbody>
+              </table>
+            </div>
+          )}
+        </div>
+      )}
+
+      {/* VIEW TAB 2: RAW GPS TELEMETRY AUDIT LOGS */}
+      {attendanceViewTab === 'raw_telemetry' && (
+        <div className="bg-white rounded-2xl border border-slate-200 p-5 sm:p-6 shadow-xs space-y-4">
+          <div className="flex items-center justify-between border-b border-slate-100 pb-3">
+            <div>
+              <h3 className="font-semibold text-slate-900 text-base">GPS Telemetry Audit Records ({filteredLogs.length})</h3>
+              <p className="text-xs text-slate-500">Every GPS coordinate, OTP verification, and device imprint</p>
+            </div>
           </div>
-        )}
-      </div>
+
+          {filteredLogs.length === 0 ? (
+            <div className="text-center py-12 space-y-3">
+              <div className="w-12 h-12 rounded-full bg-slate-100 text-slate-400 flex items-center justify-center mx-auto">
+                <Calendar className="w-6 h-6" />
+              </div>
+              <div>
+                <h4 className="text-sm font-bold text-slate-800">No Attendance Records Found</h4>
+                <p className="text-xs text-slate-500 max-w-md mx-auto mt-1">
+                  When staff check in with GPS + OTP verification, real-time telemetry will appear here.
+                </p>
+              </div>
+            </div>
+          ) : (
+            <div className="overflow-x-auto">
+              <table className="w-full text-left text-xs">
+                <thead>
+                  <tr className="border-b border-slate-200 text-slate-500 font-semibold uppercase tracking-wider">
+                    <th className="py-3 px-3">Date / Time</th>
+                    <th className="py-3 px-3">Employee</th>
+                    <th className="py-3 px-3">Type</th>
+                    <th className="py-3 px-3">Location & Radius</th>
+                    <th className="py-3 px-3">GPS Coordinates</th>
+                    <th className="py-3 px-3">OTP & Identity</th>
+                    <th className="py-3 px-3">Geofence Status</th>
+                    <th className="py-3 px-3 text-center">Admin Actions</th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-slate-100">
+                  {filteredLogs.slice(0, 50).map((log) => (
+                    <tr key={log.punchId} className="hover:bg-slate-50 transition">
+                      <td className="py-3 px-3">
+                        <div className="font-medium text-slate-900">{formatIsoToLocalDate(log.date)}</div>
+                        <div className="text-[11px] text-blue-600 font-mono font-medium">
+                          {formatIsoToLocalTime(log.timestamp, { includeSeconds: true })}
+                        </div>
+                      </td>
+
+                      <td className="py-3 px-3">
+                        <div className="font-semibold text-slate-900">{log.employeeName}</div>
+                        <div className="text-[11px] text-slate-500">{log.department}</div>
+                      </td>
+
+                      <td className="py-3 px-3">
+                        <span
+                          className={`px-2 py-0.5 rounded text-[10px] font-bold uppercase ${
+                            log.type === 'check_in'
+                              ? 'bg-emerald-100 text-emerald-800'
+                              : log.type === 'check_out'
+                              ? 'bg-red-100 text-red-800'
+                              : 'bg-amber-100 text-amber-800'
+                          }`}
+                        >
+                          {log.type.replace('_', ' ')}
+                        </span>
+                      </td>
+
+                      <td className="py-3 px-3 text-slate-700">
+                        <div className="font-medium">{log.locationName}</div>
+                        <div className="text-[11px] text-slate-400 font-mono">
+                          {log.distanceFromOfficeMeters}m from center
+                        </div>
+                      </td>
+
+                      <td className="py-3 px-3 font-mono text-[11px] text-slate-600">
+                        <div>Lat: {log.coordinates.latitude}</div>
+                        <div>Lon: {log.coordinates.longitude}</div>
+                      </td>
+
+                      <td className="py-3 px-3">
+                        <div className="flex items-center gap-1 text-emerald-700 font-medium">
+                          <ShieldCheck className="w-3.5 h-3.5" />
+                          <span>OTP Verified</span>
+                        </div>
+                        <div className="text-[11px] text-slate-400 font-mono">
+                          Phone: ...{log.phone.slice(-4)}
+                        </div>
+                      </td>
+
+                      <td className="py-3 px-3">
+                        {log.overrideNote?.includes('10 Hours') || log.overrideNote?.includes('Auto Punch Out') ? (
+                          <div className="space-y-1">
+                            <span className="px-2.5 py-0.5 rounded-full bg-blue-100 text-blue-800 border border-blue-300 text-[10px] font-bold inline-block">
+                              Auto 10-Hour Shift Completed
+                            </span>
+                            <div className="text-[10px] text-blue-600 italic">
+                              System auto-checkout at 10h limit
+                            </div>
+                          </div>
+                        ) : log.isWithinGeofence ? (
+                          <span className="px-2.5 py-0.5 rounded-full bg-emerald-50 text-emerald-700 border border-emerald-200 text-[10px] font-bold">
+                            Within Geofence
+                          </span>
+                        ) : (
+                          <div className="space-y-1">
+                            <span className="px-2.5 py-0.5 rounded-full bg-red-50 text-red-700 border border-red-200 text-[10px] font-bold">
+                              Out-of-Bounds ({log.distanceFromOfficeMeters}m)
+                            </span>
+                            {log.overrideNote && (
+                              <div className="text-[10px] text-slate-500 italic max-w-xs">
+                                Note: {log.overrideNote}
+                              </div>
+                            )}
+                          </div>
+                        )}
+                      </td>
+
+                      <td className="py-3 px-3 text-center">
+                        <div className="flex items-center justify-center gap-1.5">
+                          {/* Send individual punch alert to Admin Email */}
+                          <button
+                            type="button"
+                            onClick={() => {
+                              const emp = employees.find((e) => e.id === log.employeeId) || {
+                                id: log.employeeId,
+                                name: log.employeeName,
+                                phone: log.phone,
+                                department: log.department,
+                                role: 'staff',
+                                hourlyRate: 100,
+                                monthlySalary: 25000,
+                                status: 'active',
+                              };
+                              sendManualPunchAlertEmail(log.rawPunch, emp as any);
+                            }}
+                            className="px-2 py-1 rounded-lg border border-indigo-200 bg-indigo-50 hover:bg-indigo-100 text-indigo-700 text-[11px] font-semibold transition inline-flex items-center gap-1 cursor-pointer"
+                            title={`Send punch email notification for ${log.employeeName} to Admin`}
+                          >
+                            <Mail className="w-3 h-3" />
+                            <span>Email Alert</span>
+                          </button>
+
+                          <button
+                            type="button"
+                            onClick={() => adminPunchOutStaff(log.employeeId)}
+                            className="px-2.5 py-1 rounded-lg border border-red-200 bg-red-50 hover:bg-red-100 text-red-700 text-[11px] font-semibold transition inline-flex items-center gap-1 cursor-pointer"
+                            title={`Admin Remote Punch Out for ${log.employeeName} (Anywhere Allowed)`}
+                          >
+                            <LogOut className="w-3 h-3" />
+                            <span>Remote Out</span>
+                          </button>
+                        </div>
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          )}
+        </div>
+      )}
 
       {/* Confirmation Modal: Clear Attendance */}
       {isConfirmClearModalOpen && (

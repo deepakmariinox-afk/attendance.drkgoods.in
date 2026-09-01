@@ -23,6 +23,7 @@ import { useApp } from '../context/AppContext';
 import { Employee } from '../types';
 import { downloadStandaloneHtmlLauncher } from '../utils/fileDownloader';
 import { normalizePhone10 } from '../utils/dateUtils';
+import { BrandLogo } from './BrandLogo';
 
 interface MobileAuthGateProps {
   onOpenAppDownloadModal?: () => void;
@@ -123,7 +124,7 @@ export const MobileAuthGate: React.FC<MobileAuthGateProps> = ({ onOpenAppDownloa
       } else {
         // Strict Error: Not registered in Staff Directory
         setError(
-          `Access Denied: Mobile number +91 ${cleanInput || targetPhone} is not registered in the Staff Directory. Only candidates & staff whose mobile number and name are added in the Staff Directory can log in. Please contact Administrator Deepak Yadav (9971336707) to register your name & number.`
+          `Access Denied: Mobile number +91 ${cleanInput || targetPhone} is not registered in the Staff Directory. Only candidates & staff whose mobile number and name are added in the Staff Directory can log in. Please contact Administrator Deepak Yadav to register your name & number.`
         );
       }
     }, 200);
@@ -131,13 +132,16 @@ export const MobileAuthGate: React.FC<MobileAuthGateProps> = ({ onOpenAppDownloa
 
   const handleQuickSelect = (emp: Employee) => {
     setMatchedEmployee(emp);
+    const isEmpAdmin =
+      (emp.phone || '').replace(/\D/g, '') === '9971336707' ||
+      emp.email?.toLowerCase().trim() === 'deepak.mariinox@gmail.com';
     const cleanPhone = (emp.phone || '').replace(/\D/g, '');
-    if (cleanPhone.length >= 4) {
+    if (cleanPhone.length >= 4 || isEmpAdmin) {
       setPhoneNumber(emp.phone);
       handleProceedToPin(emp.phone, emp);
     } else {
       setError(
-        `Mobile number not registered for ${emp.name}. Only Administrator (Deepak Yadav - 9971336707) can add or update candidate mobile numbers.`
+        `Mobile number not registered for ${emp.name}. Only Administrator Deepak Yadav can add or update candidate mobile numbers.`
       );
     }
   };
@@ -216,29 +220,22 @@ export const MobileAuthGate: React.FC<MobileAuthGateProps> = ({ onOpenAppDownloa
     <div className="min-h-screen bg-slate-900 flex flex-col justify-center items-center p-4 sm:p-6 text-slate-100 font-sans">
       <div className="w-full max-w-md bg-white text-slate-900 rounded-3xl shadow-2xl border border-slate-800 overflow-hidden">
         {/* Top Header Banner */}
-        <div className="bg-slate-950 text-white p-6 relative border-b border-slate-800">
-          <div className="flex items-center gap-3">
-            <div className="w-12 h-12 rounded-2xl bg-blue-600/20 border border-blue-500/40 flex items-center justify-center text-blue-400 shadow-md">
-              <Smartphone className="w-6 h-6" />
-            </div>
-            <div>
-              <div className="inline-flex items-center gap-1.5 px-2 py-0.5 rounded-full text-[10px] font-bold bg-blue-500/20 text-blue-300 uppercase tracking-wider mb-1">
-                <Lock className="w-3 h-3" />
-                Mobile Authentication Gate
-              </div>
-              <h2 className="font-extrabold text-xl text-white tracking-tight">DRK Goods Enterprise</h2>
-              <p className="text-xs text-slate-400">Workforce Geofence Attendance & Payroll</p>
+        <div className="bg-gradient-to-b from-slate-950 via-slate-900 to-slate-950 text-white p-6 relative border-b border-slate-800">
+          <div className="flex items-center justify-between">
+            <BrandLogo size="lg" variant="dark" showSubtitle={true} />
+            <div className="w-9 h-9 rounded-xl bg-blue-500/10 border border-blue-500/30 flex items-center justify-center text-blue-400">
+              <Smartphone className="w-5 h-5" />
             </div>
           </div>
 
-          {/* Single Admin Access Rule Badge */}
+          {/* Executive Security Clearance Badge */}
           <div className="mt-4 p-2.5 rounded-xl bg-purple-950/80 border border-purple-800/60 flex items-center justify-between text-xs">
             <div className="flex items-center gap-2 text-purple-300">
               <ShieldCheck className="w-4 h-4 text-purple-400 shrink-0" />
-              <span className="font-semibold text-[11px]">Primary Admin Authorized:</span>
+              <span className="font-semibold text-[11px]">Executive Security Clearance:</span>
             </div>
-            <span className="font-mono font-bold text-purple-200 text-xs bg-purple-900/80 px-2 py-0.5 rounded border border-purple-700/60">
-              +91 9971336707
+            <span className="font-mono font-bold text-purple-200 text-[11px] bg-purple-900/80 px-2.5 py-0.5 rounded border border-purple-700/60">
+              Encrypted Admin Portal
             </span>
           </div>
         </div>
@@ -378,9 +375,15 @@ export const MobileAuthGate: React.FC<MobileAuthGateProps> = ({ onOpenAppDownloa
                               </div>
 
                               <div className="flex items-center gap-2 text-[11px] text-slate-600 font-mono mt-1 flex-wrap">
-                                <span className="font-bold text-slate-900">
-                                  📞 +91 {emp.phone || '9971336707'}
-                                </span>
+                                {isEmpAdmin ? (
+                                  <span className="font-semibold text-purple-700 bg-purple-50 px-2 py-0.5 rounded-md border border-purple-200 text-[11px]">
+                                    🔐 Protected Director Account
+                                  </span>
+                                ) : (
+                                  <span className="font-bold text-slate-900">
+                                    📞 +91 {emp.phone}
+                                  </span>
+                                )}
                                 {empShift && (
                                   <span className="font-sans font-medium text-purple-700 bg-purple-50 px-1.5 py-0.2 rounded border border-purple-200">
                                     🕒 {empShift.name} ({empShift.startTime} - {empShift.endTime})
@@ -547,11 +550,11 @@ export const MobileAuthGate: React.FC<MobileAuthGateProps> = ({ onOpenAppDownloa
                               : 'bg-blue-200 text-blue-900'
                           }`}
                         >
-                          {isTargetAdmin ? 'Admin Access (9971336707)' : 'Candidate Access'}
+                          {isTargetAdmin ? 'Principal Director Portal' : 'Candidate Access'}
                         </span>
                       </div>
                       <p className="text-[11px] text-slate-600 font-mono mt-0.5">
-                        +91 {matchedEmployee.phone || '9971336707'}
+                        {isTargetAdmin ? '🔐 Protected Account • Authenticated Admin' : `+91 ${matchedEmployee.phone}`}
                       </p>
                       {empShift && (
                         <div className="mt-1 inline-flex items-center gap-1 text-[10px] font-semibold text-purple-800 bg-purple-100/80 px-2 py-0.5 rounded-md border border-purple-200">

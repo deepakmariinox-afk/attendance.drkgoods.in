@@ -21,6 +21,7 @@ import { UserRole } from '../types';
 import { exportAllRecordsToExcel } from '../utils/excelExport';
 import { DownloadCenterModal } from './DownloadCenterModal';
 import { AppDownloadModal } from './AppDownloadModal';
+import { BrandLogo } from './BrandLogo';
 
 interface NavbarProps {
   activeTab: string;
@@ -113,20 +114,11 @@ export const Navbar: React.FC<NavbarProps> = ({ activeTab, setActiveTab }) => {
         <div className="flex items-center justify-between h-16">
           {/* Logo & Brand */}
           <div className="flex items-center gap-3">
-            <div className="w-10 h-10 rounded-xl bg-slate-900 flex items-center justify-center text-white shadow-md shadow-slate-900/20">
-              <Radio className="w-5 h-5 text-blue-400" />
-            </div>
-            <div>
-              <div className="flex items-center gap-2">
-                <h1 className="font-bold text-slate-900 text-base tracking-tight">DRK Goods</h1>
-                <span className="text-[10px] font-semibold font-mono bg-blue-50 text-blue-700 px-1.5 py-0.5 rounded border border-blue-100">
-                  GPS + OTP
-                </span>
-              </div>
-              <p className="text-[11px] text-slate-400 font-medium hidden sm:block">
-                Workforce Geofence Attendance & Payroll
-              </p>
-            </div>
+            <BrandLogo size="md" variant="light" showSubtitle={true} />
+            <span className="hidden lg:inline-flex text-[10px] font-bold font-mono bg-blue-50 text-blue-700 px-2 py-0.5 rounded-full border border-blue-200/80 items-center gap-1">
+              <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-pulse" />
+              LIVE
+            </span>
           </div>
 
           {/* Desktop Navigation Links */}
@@ -363,7 +355,7 @@ export const Navbar: React.FC<NavbarProps> = ({ activeTab, setActiveTab }) => {
                                       {isEmpAdmin && <Shield className="w-3 h-3 text-purple-600 shrink-0" />}
                                     </div>
                                     <div className="text-[10px] text-slate-400 font-mono">
-                                      {emp.phone || emp.designation}
+                                      {isEmpAdmin ? 'Director • Protected Account' : (emp.phone || emp.designation)}
                                     </div>
                                   </div>
                                   <div className="text-right">

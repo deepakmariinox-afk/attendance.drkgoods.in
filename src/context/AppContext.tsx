@@ -164,27 +164,43 @@ interface AppContextType {
 const AppContext = createContext<AppContextType | undefined>(undefined);
 
 const STORAGE_KEYS = {
-  EMPLOYEES: 'drkgoods_employees_v9',
-  LOCATIONS: 'drkgoods_locations_v9',
-  ATTENDANCE: 'drkgoods_attendance_v9',
-  LEAVES: 'drkgoods_leaves_v9',
-  SHIFTS: 'drkgoods_shifts_v9',
-  CURRENT_USER_ID: 'drkgoods_current_user_id_v9',
-  GPS_ENFORCED: 'drkgoods_gps_enforced_v9',
-  EMAIL_CONFIG: 'drkgoods_email_config_v9',
-  COMPANY_WEEK_OFF_DAYS: 'drkgoods_company_week_off_days_v9',
+  EMPLOYEES: 'drkgoods_employees_v11',
+  LOCATIONS: 'drkgoods_locations_v11',
+  ATTENDANCE: 'drkgoods_attendance_v11',
+  LEAVES: 'drkgoods_leaves_v11',
+  SHIFTS: 'drkgoods_shifts_v11',
+  CURRENT_USER_ID: 'drkgoods_current_user_id_v11',
+  GPS_ENFORCED: 'drkgoods_gps_enforced_v11',
+  EMAIL_CONFIG: 'drkgoods_email_config_v11',
+  COMPANY_WEEK_OFF_DAYS: 'drkgoods_company_week_off_days_v11',
 };
 
 // Helper function to safely merge employees with seed candidates
-export function mergeWithSeedEmployees(rawList?: Employee[]): Employee[] {
+export function mergeWithSeedEmployees(rawList: Employee[], currentList?: Employee[]): Employee[] {
   const employeeMap = new Map<string, Employee>();
 
-  // 1. Seed with default initial roster (Deepak Yadav, Mohit Chauhan, Ranjeet Kumar, Ankit Sharma, Dheeraj Singh, Shiv Shanker, Shashikant)
+  // 1. Seed with default initial roster (Deepak Yadav + all 24 candidates)
   INITIAL_EMPLOYEES.forEach((initEmp) => {
     employeeMap.set(initEmp.id, { ...initEmp });
   });
 
-  // 2. Merge existing or stored list
+  // 2. Merge existing / in-memory employees if provided
+  if (Array.isArray(currentList)) {
+    currentList.forEach((emp) => {
+      if (emp && emp.id) {
+        const existing = employeeMap.get(emp.id);
+        employeeMap.set(emp.id, {
+          ...(existing || {}),
+          ...emp,
+          name: (emp.name && emp.name.trim()) ? emp.name.trim() : (existing?.name || 'Staff Member'),
+          vendor: emp.vendor || existing?.vendor || 'Direct',
+          joinDate: emp.joinDate || existing?.joinDate,
+        });
+      }
+    });
+  }
+
+  // 3. Merge incoming raw list (e.g. from server or localStorage)
   if (Array.isArray(rawList)) {
     rawList.forEach((e) => {
       if (!e || !e.id) return;
@@ -193,11 +209,11 @@ export function mergeWithSeedEmployees(rawList?: Employee[]): Employee[] {
         e.email?.toLowerCase().trim() === 'deepak.mariinox@gmail.com' ||
         phoneDigits === '9971336707';
 
-      // Match by exact ID or phone ending
+      // Match by exact ID or identical 10-digit phone
       let targetKey = e.id;
       for (const [key, existing] of employeeMap.entries()) {
         const existingDigits = (existing.phone || '').replace(/\D/g, '');
-        if (key === e.id || (phoneDigits.length >= 10 && existingDigits.endsWith(phoneDigits.slice(-10)))) {
+        if (key === e.id || (phoneDigits.length >= 10 && existingDigits.length >= 10 && existingDigits === phoneDigits)) {
           targetKey = key;
           break;
         }
@@ -208,9 +224,13 @@ export function mergeWithSeedEmployees(rawList?: Employee[]): Employee[] {
         ...(existing || {}),
         ...e,
         id: targetKey,
-        name: e.name || existing?.name || 'Staff Member',
-        role: isDeepak ? 'admin' : 'staff',
-        phone: isDeepak && (e.phone === '9876500001' || !e.phone) ? '9971336707' : (e.phone || existing?.phone || ''),
+        name: (e.name && e.name.trim()) ? e.name.trim() : (existing?.name || 'Staff Member'),
+        role: isDeepak ? 'admin' : (e.role || 'staff'),
+        phone: isDeepak && (e.phone === '9876500001' || !e.phone) ? '9971336707' : (e.phone !== undefined ? e.phone : (existing?.phone || '')),
+        vendor: e.vendor || existing?.vendor || 'Direct',
+        department: e.department || existing?.department || 'Packaging & Warehouse',
+        designation: e.designation || existing?.designation || 'Packer',
+        joinDate: e.joinDate || existing?.joinDate,
         assignedShiftId: e.assignedShiftId || existing?.assignedShiftId || 'shift_morning',
         appAccessGranted: e.appAccessGranted !== undefined ? e.appAccessGranted : true,
         accessStatus: e.accessStatus || 'ACTIVE',
@@ -220,6 +240,55 @@ export function mergeWithSeedEmployees(rawList?: Employee[]): Employee[] {
   }
 
   return Array.from(employeeMap.values());
+}
+
+// Helper function to safely merge attendance records without losing active punches
+export function mergeAttendanceRecords(incoming: DailyAttendance[], current: DailyAttendance[]): DailyAttendance[] {
+  const map = new Map<string, DailyAttendance>();
+
+  // 1. Existing in-memory records
+  if (Array.isArray(current)) {
+    current.forEach((a) => {
+      if (a && a.id) {
+        map.set(a.id, { ...a });
+      }
+    });
+  }
+
+  // 2. Incoming server or storage records
+  if (Array.isArray(incoming)) {
+    incoming.forEach((inc) => {
+      if (!inc || !inc.id) return;
+      const existing = map.get(inc.id);
+      if (!existing) {
+        map.set(inc.id, { ...inc });
+      } else {
+        // Merge punches
+        const existingPunches = existing.punches || [];
+        const incomingPunches = inc.punches || [];
+        const punchMap = new Map<string, PunchRecord>();
+        existingPunches.forEach((p) => p && p.id && punchMap.set(p.id, p));
+        incomingPunches.forEach((p) => p && p.id && punchMap.set(p.id, p));
+        const mergedPunches = Array.from(punchMap.values()).sort(
+          (a, b) => new Date(a.timestamp).getTime() - new Date(b.timestamp).getTime()
+        );
+
+        map.set(inc.id, {
+          ...existing,
+          ...inc,
+          punches: mergedPunches,
+          checkInTime: inc.checkInTime || existing.checkInTime,
+          checkOutTime: inc.checkOutTime || existing.checkOutTime,
+          totalWorkMinutes: Math.max(inc.totalWorkMinutes || 0, existing.totalWorkMinutes || 0),
+          overtimeMinutes: Math.max(inc.overtimeMinutes || 0, existing.overtimeMinutes || 0),
+          status: inc.status || existing.status,
+          notes: inc.notes || existing.notes,
+        });
+      }
+    });
+  }
+
+  return Array.from(map.values()).sort((a, b) => (b.date || '').localeCompare(a.date || ''));
 }
 
 export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
@@ -412,9 +481,11 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       if (res.ok) {
         const data = await res.json();
         if (data && Array.isArray(data.employees)) {
-          const merged = mergeWithSeedEmployees(data.employees);
-          setEmployees(merged);
-          localStorage.setItem(STORAGE_KEYS.EMPLOYEES, JSON.stringify(merged));
+          setEmployees((prevEmployees) => {
+            const merged = mergeWithSeedEmployees(data.employees, prevEmployees);
+            localStorage.setItem(STORAGE_KEYS.EMPLOYEES, JSON.stringify(merged));
+            return merged;
+          });
         }
         if (data && Array.isArray(data.locations) && data.locations.length > 0) {
           setLocations(data.locations);
@@ -429,8 +500,11 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
           localStorage.setItem(STORAGE_KEYS.COMPANY_WEEK_OFF_DAYS, JSON.stringify(data.companyWeekOffDays));
         }
         if (data && Array.isArray(data.attendance)) {
-          setAttendance(data.attendance);
-          localStorage.setItem(STORAGE_KEYS.ATTENDANCE, JSON.stringify(data.attendance));
+          setAttendance((prevAttendance) => {
+            const merged = mergeAttendanceRecords(data.attendance, prevAttendance);
+            localStorage.setItem(STORAGE_KEYS.ATTENDANCE, JSON.stringify(merged));
+            return merged;
+          });
         }
         if (data && Array.isArray(data.leaves)) {
           setLeaves(data.leaves);
@@ -1270,23 +1344,45 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
 
   // Employee CRUD
   const addEmployee = (empData: Omit<Employee, 'id'>) => {
-    const conflict = findEmployeeWithPhone(empData.phone);
-    if (conflict) {
-      showNotification(
-        'error',
-        `Mobile number ${empData.phone} is already registered to ${conflict.name}. Each staff member must have a unique mobile number.`
-      );
-      return false;
+    const cleanPhone = (empData.phone || '').trim();
+    if (cleanPhone) {
+      const conflict = findEmployeeWithPhone(cleanPhone);
+      if (conflict) {
+        showNotification(
+          'error',
+          `Mobile number ${cleanPhone} is already registered to ${conflict.name}. Each staff member must have a unique mobile number.`
+        );
+        return false;
+      }
     }
 
     const isDeepak = empData.email?.toLowerCase().trim() === 'deepak.mariinox@gmail.com';
     const newEmp: Employee = {
       ...empData,
+      phone: cleanPhone,
+      name: empData.name.trim(),
       role: isDeepak ? 'admin' : 'staff', // Only deepak.mariinox@gmail.com can be Admin
-      id: `emp_${Date.now()}`,
+      id: `emp_${Date.now()}_${Math.random().toString(36).slice(2, 7)}`,
+      appAccessGranted: true,
+      accessStatus: 'ACTIVE',
     };
-    setEmployees((prev) => [...prev, newEmp]);
-    showNotification('success', `Enrolled employee ${newEmp.name} (${newEmp.role.toUpperCase()}).`);
+
+    setEmployees((prev) => {
+      const updated = [...prev, newEmp];
+      localStorage.setItem(STORAGE_KEYS.EMPLOYEES, JSON.stringify(updated));
+      return updated;
+    });
+
+    // Immediate server sync
+    fetch('/api/staff', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(newEmp),
+    }).catch(() => {});
+
+    pushStateToServer({ employees: [...employees, newEmp] });
+
+    showNotification('success', `Candidate ${newEmp.name} enrolled successfully in Staff Directory!`);
     return true;
   };
 
@@ -1302,19 +1398,33 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       }
     }
 
-    setEmployees((prev) =>
-      prev.map((e) => {
+    let updatedTarget: Employee | null = null;
+    setEmployees((prev) => {
+      const updated = prev.map((e) => {
         if (e.id === id) {
-          const updated = { ...e, ...partial };
-          const isDeepak = updated.email?.toLowerCase().trim() === 'deepak.mariinox@gmail.com';
-          return {
-            ...updated,
+          const updatedEmp = { ...e, ...partial };
+          if (partial.name) updatedEmp.name = partial.name.trim();
+          const isDeepak = updatedEmp.email?.toLowerCase().trim() === 'deepak.mariinox@gmail.com';
+          updatedTarget = {
+            ...updatedEmp,
             role: isDeepak ? 'admin' : 'staff', // Strict admin enforcement
           };
+          return updatedTarget;
         }
         return e;
-      })
-    );
+      });
+      localStorage.setItem(STORAGE_KEYS.EMPLOYEES, JSON.stringify(updated));
+      return updated;
+    });
+
+    if (updatedTarget) {
+      fetch('/api/staff', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(updatedTarget),
+      }).catch(() => {});
+    }
+
     showNotification('success', 'Staff profile updated.');
     return true;
   };
@@ -1471,7 +1581,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     if (!emp) {
       return {
         success: false,
-        message: `Access Denied: Mobile number +91 ${cleanDigits || rawPhone} is not registered in the Staff Directory. Only candidates & staff whose mobile number and name are added in the Staff Directory can log in. Please contact Administrator Deepak Yadav (9971336707) to register your details.`,
+        message: `Access Denied: Mobile number +91 ${cleanDigits || rawPhone} is not registered in the Staff Directory. Only candidates & staff whose mobile number and name are added in the Staff Directory can log in. Please contact Administrator Deepak Yadav to register your details.`,
       };
     }
 
@@ -1481,7 +1591,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     if (!isAdmin && (!emp.phone || emp.phone.trim() === '')) {
       return {
         success: false,
-        message: `Mobile number not registered for ${emp.name}. Only Administrator Deepak Yadav (9971336707) can add or update candidate mobile numbers in Staff Directory.`,
+        message: `Mobile number not registered for ${emp.name}. Only Administrator Deepak Yadav can add or update candidate mobile numbers in Staff Directory.`,
       };
     }
 
@@ -1498,7 +1608,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     if (!emp) {
       return {
         success: false,
-        message: `Access Denied: Mobile number +91 ${cleanDigits || rawPhone} is not registered in the Staff Directory. Only authorized personnel whose details are added by Admin (9971336707) can log in.`,
+        message: `Access Denied: Mobile number +91 ${cleanDigits || rawPhone} is not registered in the Staff Directory. Only authorized personnel whose details are added in Staff Directory can log in.`,
       };
     }
 

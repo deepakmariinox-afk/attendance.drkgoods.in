@@ -21,6 +21,7 @@ import {
   Lock,
   Unlock,
   RotateCcw,
+  RefreshCw,
   Calendar,
   CalendarDays,
   UploadCloud,
@@ -53,10 +54,12 @@ export const StaffDirectory: React.FC = () => {
     getEmployeeWeekOffDays,
     currentUser,
     showNotification,
+    syncWithServer,
   } = useApp();
 
   const [searchQuery, setSearchQuery] = useState<string>('');
   const [selectedDeptFilter, setSelectedDeptFilter] = useState<string>('all');
+  const [selectedVendorFilter, setSelectedVendorFilter] = useState<string>('all');
   const [isAddModalOpen, setIsAddModalOpen] = useState<boolean>(false);
   const [isDeptModalOpen, setIsDeptModalOpen] = useState<boolean>(false);
   const [isShiftModalOpen, setIsShiftModalOpen] = useState<boolean>(false);
@@ -64,6 +67,7 @@ export const StaffDirectory: React.FC = () => {
   const [isRosterUploadModalOpen, setIsRosterUploadModalOpen] = useState<boolean>(false);
   const [editingEmp, setEditingEmp] = useState<Employee | null>(null);
   const [isExporting, setIsExporting] = useState<boolean>(false);
+  const [isSyncing, setIsSyncing] = useState<boolean>(false);
 
   // Department management state
   const [editingDeptName, setEditingDeptName] = useState<string | null>(null);
@@ -81,6 +85,7 @@ export const StaffDirectory: React.FC = () => {
   const [email, setEmail] = useState<string>('');
   const [phone, setPhone] = useState<string>('');
   const [role, setRole] = useState<UserRole>('staff');
+  const [vendor, setVendor] = useState<string>('Direct');
   const [department, setDepartment] = useState<string>('Engineering & Product');
   const [designation, setDesignation] = useState<string>('Software Engineer');
   const [assignedLocationId, setAssignedLocationId] = useState<string>(locations[0]?.id || 'loc_hq');
@@ -92,10 +97,14 @@ export const StaffDirectory: React.FC = () => {
   const [quickEditEmpId, setQuickEditEmpId] = useState<string | null>(null);
   const [quickDeptValue, setQuickDeptValue] = useState<string>('');
 
-  // Extract all distinct departments from current employees
+  // Extract all distinct departments and vendors from current employees
   const allDepartments = Array.from(
     new Set([
       'Executive / Operations & HR',
+      'Production & Assembly',
+      'Quality Assurance & Inspection',
+      'Operations & Site Management',
+      'Packaging & Warehouse',
       'Logistics & Dispatch',
       'Warehouse & Inventory',
       'General Operations',
@@ -103,16 +112,29 @@ export const StaffDirectory: React.FC = () => {
     ])
   );
 
+  const allVendors = Array.from(
+    new Set([
+      'Direct',
+      'RK KHAN',
+      'Saurav Solnki',
+      ...employees.map((e) => e.vendor).filter(Boolean) as string[],
+    ])
+  );
+
   const filteredEmployees = employees.filter((e) => {
+    const q = searchQuery.trim().toLowerCase();
     const matchSearch =
-      e.name.toLowerCase().includes(searchQuery.toLowerCase()) ||
-      e.department.toLowerCase().includes(searchQuery.toLowerCase()) ||
-      e.designation.toLowerCase().includes(searchQuery.toLowerCase()) ||
-      e.phone.includes(searchQuery);
+      !q ||
+      (e.name || '').toLowerCase().includes(q) ||
+      (e.department || '').toLowerCase().includes(q) ||
+      (e.designation || '').toLowerCase().includes(q) ||
+      ((e.vendor || 'Direct').toLowerCase().includes(q)) ||
+      (e.phone || '').includes(q);
 
     const matchDept = selectedDeptFilter === 'all' || e.department === selectedDeptFilter;
+    const matchVendor = selectedVendorFilter === 'all' || (e.vendor || 'Direct') === selectedVendorFilter;
 
-    return matchSearch && matchDept;
+    return matchSearch && matchDept && matchVendor;
   });
 
   const handleOpenAdd = () => {
@@ -120,10 +142,11 @@ export const StaffDirectory: React.FC = () => {
     setEmail('');
     setPhone('');
     setRole('staff');
-    setDepartment(allDepartments[0] || 'Engineering & Product');
-    setDesignation('Software Engineer');
+    setVendor('Direct');
+    setDepartment('Packaging & Warehouse');
+    setDesignation('Packer');
     setAssignedLocationId(locations[0]?.id || 'loc_hq');
-    setAssignedShiftId(shifts[0]?.id || 'shift_standard');
+    setAssignedShiftId(shifts[0]?.id || 'shift_morning');
     setEmpWeekOffDays(undefined);
     setBankAccount('HDFC0001234 - 501002938491');
     setIsAddModalOpen(true);
@@ -132,33 +155,42 @@ export const StaffDirectory: React.FC = () => {
   const handleOpenEdit = (emp: Employee) => {
     setEditingEmp(emp);
     setName(emp.name);
-    setEmail(emp.email);
-    setPhone(emp.phone);
+    setEmail(emp.email || '');
+    setPhone(emp.phone || '');
     setRole(emp.role);
-    setDepartment(emp.department);
-    setDesignation(emp.designation);
+    setVendor(emp.vendor || 'Direct');
+    setDepartment(emp.department || 'General Operations');
+    setDesignation(emp.designation || 'Field Staff Associate');
     setAssignedLocationId(emp.assignedLocationId);
-    setAssignedShiftId(emp.assignedShiftId || shifts[0]?.id || 'shift_standard');
+    setAssignedShiftId(emp.assignedShiftId || shifts[0]?.id || 'shift_morning');
     setEmpWeekOffDays(emp.weekOffDays);
-    setBankAccount(emp.bankAccount);
+    setBankAccount(emp.bankAccount || '');
   };
 
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
-    if (!name.trim()) return;
+    const cleanName = name.trim();
+    if (!cleanName) {
+      showNotification('error', 'Please enter candidate full name.');
+      return;
+    }
 
     const trimmedDept = department.trim() || 'General Operations';
+    const cleanEmail = email.trim() || `${cleanName.toLowerCase().replace(/[^a-z0-9]/g, '.')}@drkgoods.in`;
+    const cleanDesignation = designation.trim() || 'Field Staff Associate';
+    const cleanVendor = vendor.trim() || 'Direct';
     const computedMonthly = 15000;
     const computedHourly = Math.max(1, Math.round(computedMonthly / 160));
 
     if (editingEmp) {
       const ok = updateEmployee(editingEmp.id, {
-        name,
-        email,
-        phone,
+        name: cleanName,
+        email: cleanEmail,
+        phone: phone.trim(),
         role,
+        vendor: cleanVendor,
         department: trimmedDept,
-        designation,
+        designation: cleanDesignation,
         assignedLocationId,
         assignedShiftId,
         weekOffDays: empWeekOffDays,
@@ -166,15 +198,18 @@ export const StaffDirectory: React.FC = () => {
         monthlyBaseSalary: computedMonthly,
         bankAccount,
       });
-      if (ok) setEditingEmp(null);
+      if (ok) {
+        setEditingEmp(null);
+      }
     } else {
       const ok = addEmployee({
-        name,
-        email: email || `${name.toLowerCase().replace(/\s+/g, '.')}@drkgoods.com`,
-        phone,
+        name: cleanName,
+        email: cleanEmail,
+        phone: phone.trim(),
         role,
+        vendor: cleanVendor,
         department: trimmedDept,
-        designation,
+        designation: cleanDesignation,
         assignedLocationId,
         assignedShiftId,
         weekOffDays: empWeekOffDays,
@@ -184,7 +219,12 @@ export const StaffDirectory: React.FC = () => {
         bankAccount,
         joinDate: new Date().toISOString().slice(0, 10),
       });
-      if (ok) setIsAddModalOpen(false);
+      if (ok) {
+        setIsAddModalOpen(false);
+        setSelectedDeptFilter('all');
+        setSelectedVendorFilter('all');
+        setSearchQuery('');
+      }
     }
   };
 
@@ -265,6 +305,19 @@ export const StaffDirectory: React.FC = () => {
     }
   };
 
+  const handleSyncMasterRoster = async () => {
+    try {
+      setIsSyncing(true);
+      await syncWithServer();
+      showNotification('success', `Master Roster synced (${employees.length} active staff members loaded).`);
+    } catch (err) {
+      console.error(err);
+      showNotification('error', 'Failed to sync staff roster.');
+    } finally {
+      setIsSyncing(false);
+    }
+  };
+
   return (
     <div className="space-y-6">
       {/* Header */}
@@ -274,6 +327,9 @@ export const StaffDirectory: React.FC = () => {
             <span className="px-2.5 py-0.5 rounded-full text-xs font-bold bg-blue-100 text-blue-700 uppercase tracking-wider">
               Workforce Roster
             </span>
+            <span className="px-2.5 py-0.5 rounded-full text-xs font-semibold bg-slate-100 text-slate-700">
+              {employees.length} Members
+            </span>
           </div>
           <h2 className="text-xl font-bold text-slate-900 mt-1">Staff Directory & Shift Assignments</h2>
           <p className="text-xs text-slate-500 mt-0.5">
@@ -282,6 +338,17 @@ export const StaffDirectory: React.FC = () => {
         </div>
 
         <div className="flex flex-wrap items-center gap-2.5">
+          <button
+            onClick={handleSyncMasterRoster}
+            disabled={isSyncing}
+            className="px-3.5 py-2.5 rounded-xl border border-slate-200 hover:bg-slate-50 text-slate-700 text-xs font-semibold shadow-xs inline-flex items-center gap-2 transition cursor-pointer disabled:opacity-50"
+            id="btn-sync-staff"
+            title="Refresh & Synchronize Staff Roster with Server"
+          >
+            <RefreshCw className={`w-4 h-4 text-blue-600 ${isSyncing ? 'animate-spin' : ''}`} />
+            <span>{isSyncing ? 'Syncing...' : 'Sync Master Roster'}</span>
+          </button>
+
           <button
             onClick={handleExportStaffExcel}
             disabled={isExporting}
@@ -412,6 +479,49 @@ export const StaffDirectory: React.FC = () => {
             );
           })}
         </div>
+
+        {/* Dynamic Vendor / Source Tabs */}
+        <div className="flex items-center gap-1.5 overflow-x-auto pb-1 pt-1 border-t border-slate-100">
+          <span className="text-[11px] font-semibold text-slate-500 mr-1 flex items-center gap-1">
+            <span>🏢 Vendor:</span>
+          </span>
+          <button
+            onClick={() => setSelectedVendorFilter('all')}
+            className={`px-2.5 py-1 rounded-lg text-xs font-medium whitespace-nowrap transition flex items-center gap-1.5 ${
+              selectedVendorFilter === 'all'
+                ? 'bg-purple-600 text-white shadow-xs'
+                : 'bg-slate-100 text-slate-600 hover:bg-slate-200'
+            }`}
+          >
+            <span>All Sources ({employees.length})</span>
+          </button>
+
+          {allVendors.map((v) => {
+            const count = employees.filter((e) => (e.vendor || 'Direct') === v).length;
+            const isSelected = selectedVendorFilter === v;
+
+            return (
+              <button
+                key={v}
+                onClick={() => setSelectedVendorFilter(v)}
+                className={`px-2.5 py-1 rounded-lg text-xs font-medium whitespace-nowrap transition flex items-center gap-1.5 ${
+                  isSelected
+                    ? 'bg-purple-600 text-white shadow-xs'
+                    : 'bg-slate-100 text-slate-600 hover:bg-slate-200'
+                }`}
+              >
+                <span>{v}</span>
+                <span
+                  className={`text-[10px] px-1.5 py-0.2 rounded-full ${
+                    isSelected ? 'bg-purple-700 text-white' : 'bg-slate-200 text-slate-700'
+                  }`}
+                >
+                  {count}
+                </span>
+              </button>
+            );
+          })}
+        </div>
       </div>
 
       {/* Staff Table */}
@@ -421,6 +531,7 @@ export const StaffDirectory: React.FC = () => {
             <thead>
               <tr className="border-b border-slate-200 text-slate-500 font-semibold uppercase tracking-wider">
                 <th className="py-3 px-3">Staff Member</th>
+                <th className="py-3 px-3">Vendor / Source</th>
                 <th className="py-3 px-3">Role</th>
                 <th className="py-3 px-3">Department</th>
                 <th className="py-3 px-3">Assigned Shift</th>
@@ -430,16 +541,74 @@ export const StaffDirectory: React.FC = () => {
               </tr>
             </thead>
             <tbody className="divide-y divide-slate-100">
-              {filteredEmployees.map((emp) => {
-                const loc = locations.find((l) => l.id === emp.assignedLocationId);
-                const shift = shifts.find((s) => s.id === emp.assignedShiftId) || shifts[0];
-                const isQuickEditing = quickEditEmpId === emp.id;
+              {filteredEmployees.length === 0 ? (
+                <tr>
+                  <td colSpan={currentUser.role === 'admin' ? 8 : 7} className="py-12 text-center">
+                    <div className="max-w-md mx-auto space-y-3">
+                      <div className="w-12 h-12 rounded-2xl bg-blue-50 text-blue-600 mx-auto flex items-center justify-center">
+                        <Users className="w-6 h-6" />
+                      </div>
+                      <p className="font-semibold text-slate-800 text-sm">No staff members match the current search / filter</p>
+                      <p className="text-xs text-slate-500">
+                        {employees.length} total staff members are registered. Try resetting your search or filter.
+                      </p>
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setSearchQuery('');
+                          setSelectedDeptFilter('all');
+                          setSelectedVendorFilter('all');
+                        }}
+                        className="px-4 py-2 rounded-xl bg-blue-600 hover:bg-blue-700 text-white text-xs font-semibold shadow-xs transition cursor-pointer"
+                      >
+                        Reset All Filters ({employees.length} Staff)
+                      </button>
+                    </div>
+                  </td>
+                </tr>
+              ) : (
+                filteredEmployees.map((emp) => {
+                  const loc = locations.find((l) => l.id === emp.assignedLocationId);
+                  const shift = shifts.find((s) => s.id === emp.assignedShiftId) || shifts[0];
+                  const isQuickEditing = quickEditEmpId === emp.id;
+                  const vendorLabel = emp.vendor || 'Direct';
 
-                return (
-                  <tr key={emp.id} className="hover:bg-slate-50 transition">
+                  return (
+                    <tr key={emp.id} className="hover:bg-slate-50 transition">
+                      <td className="py-3 px-3">
+                        <div className="flex items-center gap-2.5">
+                          <div className="w-8 h-8 rounded-xl bg-gradient-to-br from-blue-500 to-indigo-600 text-white font-bold text-xs flex items-center justify-center shrink-0 shadow-xs">
+                            {(emp.name || 'S').charAt(0).toUpperCase()}
+                          </div>
+                          <div>
+                            <div className="font-bold text-slate-900 text-xs sm:text-sm">{emp.name || 'Staff Member'}</div>
+                            <div className="text-[11px] text-slate-500 flex items-center gap-1.5 flex-wrap">
+                              <span className="font-medium text-slate-700">{emp.designation || 'Staff Associate'}</span>
+                              {emp.joinDate && (
+                                <span className="text-[10px] text-slate-400">
+                                  • Joined {emp.joinDate}
+                                </span>
+                              )}
+                            </div>
+                          </div>
+                        </div>
+                      </td>
+
+                    {/* Vendor Badge */}
                     <td className="py-3 px-3">
-                      <div className="font-semibold text-slate-900">{emp.name}</div>
-                      <div className="text-[11px] text-slate-500">{emp.designation}</div>
+                      <span
+                        className={`inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-[10px] font-bold tracking-wide border ${
+                          vendorLabel === 'Direct'
+                            ? 'bg-emerald-50 text-emerald-800 border-emerald-200'
+                            : vendorLabel === 'RK KHAN'
+                            ? 'bg-amber-50 text-amber-800 border-amber-200'
+                            : vendorLabel === 'Saurav Solnki'
+                            ? 'bg-purple-50 text-purple-800 border-purple-200'
+                            : 'bg-blue-50 text-blue-800 border-blue-200'
+                        }`}
+                      >
+                        {vendorLabel}
+                      </span>
                     </td>
 
                     <td className="py-3 px-3">
@@ -660,7 +829,7 @@ export const StaffDirectory: React.FC = () => {
                     )}
                   </tr>
                 );
-              })}
+              }))}
             </tbody>
           </table>
         </div>
@@ -1038,25 +1207,30 @@ export const StaffDirectory: React.FC = () => {
             <form onSubmit={handleSubmit} className="space-y-4 text-xs">
               <div className="grid grid-cols-2 gap-3">
                 <div>
-                  <label className="block font-medium text-slate-700 mb-1">Full Name</label>
+                  <label className="block font-medium text-slate-700 mb-1">
+                    Candidate Full Name <span className="text-red-500">*</span>
+                  </label>
                   <input
                     type="text"
                     value={name}
                     onChange={(e) => setName(e.target.value)}
-                    placeholder="e.g. Jordan Miller"
-                    className="w-full px-3 py-2 border border-slate-200 rounded-xl bg-slate-50 outline-none focus:ring-2 focus:ring-blue-500"
+                    placeholder="e.g. Ramesh Kumar"
+                    className="w-full px-3 py-2 border border-slate-200 rounded-xl bg-slate-50 outline-none focus:ring-2 focus:ring-blue-500 font-medium text-slate-900"
                     required
+                    autoFocus
                   />
                 </div>
                 <div>
-                  <label className="block font-medium text-slate-700 mb-1">Email</label>
+                  <label className="block font-medium text-slate-700 mb-1 flex items-center justify-between">
+                    <span>Email Address</span>
+                    <span className="text-[10px] text-slate-400 font-normal">(Optional)</span>
+                  </label>
                   <input
                     type="email"
                     value={email}
                     onChange={(e) => setEmail(e.target.value)}
-                    placeholder="jordan@drkgoods.com"
+                    placeholder="Auto-generated if empty"
                     className="w-full px-3 py-2 border border-slate-200 rounded-xl bg-slate-50 outline-none focus:ring-2 focus:ring-blue-500"
-                    required
                   />
                 </div>
               </div>
@@ -1071,7 +1245,7 @@ export const StaffDirectory: React.FC = () => {
                     type="text"
                     value={phone}
                     onChange={(e) => setPhone(e.target.value)}
-                    placeholder="e.g. 8882051034"
+                    placeholder="e.g. 9811234567"
                     className="w-full px-3 py-2 border border-slate-200 rounded-xl bg-slate-50 outline-none focus:ring-2 focus:ring-blue-500 font-mono font-semibold"
                   />
                   <p className="text-[10px] text-emerald-700 font-medium mt-1">
@@ -1099,35 +1273,41 @@ export const StaffDirectory: React.FC = () => {
                 </div>
               </div>
 
-              {/* Department (Editable Text / Datalist) & Designation */}
+              {/* Vendor / Source & Designation */}
               <div className="grid grid-cols-2 gap-3">
                 <div>
                   <div className="flex items-center justify-between mb-1">
-                    <label className="block font-medium text-slate-700">Department</label>
-                    <span className="text-[10px] text-blue-600 font-medium">Editable</span>
+                    <label className="block font-medium text-slate-700">Vendor / Sourcing Agency</label>
+                    <span className="text-[10px] text-purple-600 font-medium">Direct or Contractor</span>
                   </div>
-                  <input
-                    type="text"
-                    list="departments-list"
-                    value={department}
-                    onChange={(e) => setDepartment(e.target.value)}
-                    placeholder="Type or select department..."
-                    className="w-full px-3 py-2 border border-slate-200 rounded-xl bg-slate-50 outline-none focus:ring-2 focus:ring-blue-500 font-medium text-slate-900"
-                    required
-                  />
+                  <div className="relative">
+                    <input
+                      type="text"
+                      list="vendors-list"
+                      value={vendor}
+                      onChange={(e) => setVendor(e.target.value)}
+                      placeholder="e.g. Direct, RK KHAN, Saurav Solnki"
+                      className="w-full px-3 py-2 border border-slate-200 rounded-xl bg-slate-50 outline-none focus:ring-2 focus:ring-purple-500 font-medium text-slate-900"
+                    />
+                    <datalist id="vendors-list">
+                      <option value="Direct" />
+                      <option value="RK KHAN" />
+                      <option value="Saurav Solnki" />
+                    </datalist>
+                  </div>
                   <div className="flex flex-wrap gap-1 mt-1.5">
-                    {allDepartments.slice(0, 3).map((deptOption) => (
+                    {['Direct', 'RK KHAN', 'Saurav Solnki'].map((vOption) => (
                       <button
-                        key={deptOption}
+                        key={vOption}
                         type="button"
-                        onClick={() => setDepartment(deptOption)}
+                        onClick={() => setVendor(vOption)}
                         className={`text-[10px] px-1.5 py-0.5 rounded border transition ${
-                          department === deptOption
-                            ? 'bg-blue-100 border-blue-300 text-blue-800 font-bold'
+                          vendor === vOption
+                            ? 'bg-purple-100 border-purple-300 text-purple-800 font-bold'
                             : 'bg-slate-50 border-slate-200 text-slate-600 hover:bg-slate-100'
                         }`}
                       >
-                        {deptOption}
+                        {vOption}
                       </button>
                     ))}
                   </div>
@@ -1139,10 +1319,43 @@ export const StaffDirectory: React.FC = () => {
                     type="text"
                     value={designation}
                     onChange={(e) => setDesignation(e.target.value)}
-                    placeholder="e.g. Lead QA Specialist"
+                    placeholder="e.g. Packer, QA Associate"
                     className="w-full px-3 py-2 border border-slate-200 rounded-xl bg-slate-50 outline-none focus:ring-2 focus:ring-blue-500"
                     required
                   />
+                </div>
+              </div>
+
+              {/* Department (Editable Text / Datalist) */}
+              <div>
+                <div className="flex items-center justify-between mb-1">
+                  <label className="block font-medium text-slate-700">Department</label>
+                  <span className="text-[10px] text-blue-600 font-medium">Editable</span>
+                </div>
+                <input
+                  type="text"
+                  list="departments-list"
+                  value={department}
+                  onChange={(e) => setDepartment(e.target.value)}
+                  placeholder="Type or select department..."
+                  className="w-full px-3 py-2 border border-slate-200 rounded-xl bg-slate-50 outline-none focus:ring-2 focus:ring-blue-500 font-medium text-slate-900"
+                  required
+                />
+                <div className="flex flex-wrap gap-1 mt-1.5">
+                  {allDepartments.slice(0, 4).map((deptOption) => (
+                    <button
+                      key={deptOption}
+                      type="button"
+                      onClick={() => setDepartment(deptOption)}
+                      className={`text-[10px] px-1.5 py-0.5 rounded border transition ${
+                        department === deptOption
+                          ? 'bg-blue-100 border-blue-300 text-blue-800 font-bold'
+                          : 'bg-slate-50 border-slate-200 text-slate-600 hover:bg-slate-100'
+                      }`}
+                    >
+                      {deptOption}
+                    </button>
+                  ))}
                 </div>
               </div>
 

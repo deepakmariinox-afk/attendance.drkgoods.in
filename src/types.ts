@@ -34,6 +34,7 @@ export interface Employee {
   role: UserRole;
   department: string;
   designation: string;
+  vendor?: string; // Vendor / Contractor / Direct
   avatarUrl?: string;
   assignedLocationId: string;
   assignedShiftId?: string; // Assigned Shift ID

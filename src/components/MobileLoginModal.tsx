@@ -14,6 +14,7 @@ import {
 } from 'lucide-react';
 import { useApp } from '../context/AppContext';
 import { Employee } from '../types';
+import { BrandLogo } from './BrandLogo';
 
 interface MobileLoginModalProps {
   isOpen: boolean;
@@ -167,21 +168,9 @@ export const MobileLoginModal: React.FC<MobileLoginModalProps> = ({ isOpen, onCl
     <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/70 backdrop-blur-xs animate-in fade-in duration-200">
       <div className="relative w-full max-w-lg bg-white rounded-3xl shadow-2xl border border-slate-200 overflow-hidden">
         {/* Modal Header */}
-        <div className="bg-slate-900 text-white p-6 relative">
+        <div className="bg-gradient-to-b from-slate-950 via-slate-900 to-slate-950 text-white p-6 relative border-b border-slate-800">
           <div className="flex items-start justify-between">
-            <div className="flex items-center gap-3">
-              <div className="w-12 h-12 rounded-2xl bg-blue-600/20 border border-blue-500/30 flex items-center justify-center text-blue-400 shadow-md">
-                <Smartphone className="w-6 h-6" />
-              </div>
-              <div>
-                <div className="inline-flex items-center gap-1.5 px-2 py-0.5 rounded-full text-[10px] font-bold bg-blue-500/20 text-blue-300 uppercase tracking-wider mb-1">
-                  <Lock className="w-3 h-3" />
-                  Mobile PIN Authentication
-                </div>
-                <h3 className="font-bold text-lg text-white">Workforce & Admin Login</h3>
-                <p className="text-xs text-slate-400">Sign in with registered mobile phone & 4-digit PIN</p>
-              </div>
-            </div>
+            <BrandLogo size="md" variant="dark" showSubtitle={true} />
 
             <button
               onClick={onClose}
@@ -211,7 +200,7 @@ export const MobileLoginModal: React.FC<MobileLoginModalProps> = ({ isOpen, onCl
                       </span>
                     </div>
                     <p className="text-[11px] text-purple-800 font-mono mt-0.5">
-                      deepak.mariinox@gmail.com • Mob: 9971336707
+                      deepak.mariinox@gmail.com • Director Portal
                     </p>
                     <p className="text-[10px] text-purple-700 mt-1 leading-snug">
                       Administrator access is verified and active on this device.

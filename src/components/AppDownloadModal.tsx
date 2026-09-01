@@ -21,6 +21,7 @@ import {
 } from 'lucide-react';
 import { useApp } from '../context/AppContext';
 import { downloadStandaloneHtmlLauncher } from '../utils/fileDownloader';
+import { BrandLogo } from './BrandLogo';
 
 interface AppDownloadModalProps {
   isOpen: boolean;
@@ -114,24 +115,12 @@ export const AppDownloadModal: React.FC<AppDownloadModalProps> = ({ isOpen, onCl
     <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/75 backdrop-blur-sm animate-in fade-in duration-200">
       <div className="bg-white rounded-3xl shadow-2xl border border-slate-200 w-full max-w-2xl max-h-[92vh] flex flex-col overflow-hidden">
         {/* Header */}
-        <div className="p-6 bg-slate-900 text-white flex items-center justify-between border-b border-slate-800">
+        <div className="p-6 bg-gradient-to-b from-slate-950 via-slate-900 to-slate-950 text-white flex items-center justify-between border-b border-slate-800">
           <div className="flex items-center gap-3">
-            <div className="w-10 h-10 rounded-2xl bg-blue-500/20 border border-blue-500/30 flex items-center justify-center text-blue-400">
-              <Smartphone className="w-5 h-5" />
-            </div>
-            <div>
-              <div className="flex items-center gap-2">
-                <h3 className="text-lg font-bold text-white tracking-tight">
-                  Download & Install DRK Goods App
-                </h3>
-                <span className="text-[10px] font-bold px-2 py-0.5 rounded-full bg-emerald-500/20 text-emerald-300 border border-emerald-500/30">
-                  PWA & Mobile Ready
-                </span>
-              </div>
-              <p className="text-xs text-slate-400">
-                Install as a native standalone app on Android, iPhone/iPad, or PC for fast 1-tap attendance
-              </p>
-            </div>
+            <BrandLogo size="md" variant="dark" showSubtitle={true} />
+            <span className="hidden sm:inline-flex text-[10px] font-bold px-2 py-0.5 rounded-full bg-emerald-500/20 text-emerald-300 border border-emerald-500/30">
+              PWA & Mobile App
+            </span>
           </div>
           <button
             onClick={onClose}
@@ -148,7 +137,7 @@ export const AppDownloadModal: React.FC<AppDownloadModalProps> = ({ isOpen, onCl
           <div className="p-3.5 rounded-2xl bg-amber-50 border border-amber-200 flex items-start gap-3 text-xs text-amber-900">
             <ShieldCheck className="w-5 h-5 text-amber-700 shrink-0 mt-0.5" />
             <div>
-              <span className="font-bold">Enterprise Access Policy:</span> Only candidates & staff whose details are pre-registered in the system by <strong>Administrator Deepak Yadav (9971336707)</strong> are authorized to access the system upon mobile OTP/PIN verification.
+              <span className="font-bold">Enterprise Access Policy:</span> Only candidates & staff whose details are pre-registered in the system by <strong>Administrator Deepak Yadav</strong> are authorized to access the system upon mobile OTP/PIN verification.
             </div>
           </div>
 
